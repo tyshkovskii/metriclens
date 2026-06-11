@@ -1,0 +1,12 @@
+{
+  "name": "metriclens",
+  "image": "golang:1.25",
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "customizations": {
+    "vscode": {
+      "extensions": ["golang.go"]
+    }
+  },
+  "postCreateCommand": "cd backend && go mod download"
+}

@@ -1,0 +1,37 @@
+name: metriclens-example
+
+# Run from this directory:
+#   docker compose up --build
+# Then open http://localhost:9999 to see metriclens discover the api and worker
+# services below, browse their raw metrics, generated panels, and quality checks.
+
+services:
+  metriclens:
+    image: metriclens:dev
+    build:
+      context: ../..
+    ports:
+      - "9999:9999"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      metriclens_SCRAPE_INTERVAL: 5s
+      metriclens_RETENTION: 15m
+
+  api:
+    build:
+      context: ./api
+    expose:
+      - "8080"
+    labels:
+      # Tell metriclens which port/path to probe first.
+      metriclens.port: "8080"
+      metriclens.path: "/metrics"
+
+  worker:
+    build:
+      context: ./worker
+    expose:
+      - "9090"
+    labels:
+      metriclens.port: "9090"

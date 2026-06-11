@@ -1,0 +1,9 @@
+.git
+.DS_Store
+Dockerfile
+docker-compose*.yml
+backend/bin
+backend/coverage.out
+frontend/node_modules
+frontend/dist
+frontend/*.tsbuildinfo

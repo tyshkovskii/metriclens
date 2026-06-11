@@ -1,0 +1,135 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+  --bg: #ffffff;
+  --fg: #18181b;
+  --muted: #71717a;
+  --edge: #e4e4e7;
+  --accent: #059669;
+  --danger: #dc2626;
+  --warn: #d97706;
+  --chart-1: #0284c7;
+  --chart-2: #7c3aed;
+  --chart-3: #d97706;
+  --chart-4: #059669;
+  --chart-5: #e11d48;
+  --chart-6: #475569;
+  --chart-7: #c026d3;
+  --chart-8: #65a30d;
+}
+
+.dark {
+  color-scheme: dark;
+  --bg: #0a0a0a;
+  --fg: #fafafa;
+  --muted: #71717a;
+  --edge: #27272a;
+  --accent: #34d399;
+  --danger: #f87171;
+  --warn: #fbbf24;
+  --chart-1: #38bdf8;
+  --chart-2: #a78bfa;
+  --chart-3: #fbbf24;
+  --chart-4: #34d399;
+  --chart-5: #fb7185;
+  --chart-6: #94a3b8;
+  --chart-7: #e879f9;
+  --chart-8: #a3e635;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-edge: var(--edge);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --color-warn: var(--warn);
+  --animate-blink: ml-blink 1.2s steps(2, start) infinite;
+  --font-mono:
+    ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background-color: var(--accent);
+  color: var(--bg);
+}
+
+@keyframes ml-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* Time scrubber: native range input over a custom track.
+   --scrub-pct (set inline from React) fills the elapsed portion with accent. */
+input[type="range"].scrubber {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  margin: 0;
+  background: transparent;
+  cursor: ew-resize;
+  touch-action: manipulation;
+}
+input[type="range"].scrubber::-webkit-slider-runnable-track {
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    var(--accent) var(--scrub-pct, 100%),
+    var(--edge) var(--scrub-pct, 100%)
+  );
+}
+input[type="range"].scrubber::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 7px;
+  height: 16px;
+  margin-top: -7px;
+  border-radius: 1px;
+  background: var(--accent);
+  transition: box-shadow 100ms ease;
+}
+input[type="range"].scrubber:hover::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+input[type="range"].scrubber:active::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+input[type="range"].scrubber::-moz-range-track {
+  height: 2px;
+  background: var(--edge);
+}
+input[type="range"].scrubber::-moz-range-progress {
+  height: 2px;
+  background: var(--accent);
+}
+input[type="range"].scrubber::-moz-range-thumb {
+  width: 7px;
+  height: 16px;
+  border: none;
+  border-radius: 1px;
+  background: var(--accent);
+  transition: box-shadow 100ms ease;
+}
+input[type="range"].scrubber:hover::-moz-range-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+input[type="range"].scrubber:active::-moz-range-thumb {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent);
+}
