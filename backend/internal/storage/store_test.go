@@ -118,8 +118,6 @@ func TestRecordPreservesCounterReset(t *testing.T) {
 	}
 }
 
-
-
 func familiesWithSample(metric string, value float64) []model.MetricFamily {
 	return []model.MetricFamily{
 		{

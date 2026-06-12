@@ -248,8 +248,6 @@ http_requests_total{method="GET",status="200"} 10
 	}
 }
 
-
-
 func response(statusCode int, body string) *http.Response {
 	return &http.Response{
 		StatusCode: statusCode,
