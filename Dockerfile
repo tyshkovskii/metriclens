@@ -28,7 +28,7 @@ COPY --from=frontend /src/frontend/dist ./internal/web/dist
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/metriclens ./cmd/server
 
 # --- Stage 3: minimal runtime image ---
-FROM alpine:3.22
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates
 
