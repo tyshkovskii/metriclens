@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -36,6 +37,9 @@ type ContainerLister interface {
 type TargetStore interface {
 	Targets() []model.Target
 	TargetMetrics(string) (model.TargetMetricsResponse, bool)
+	// TargetSeries returns stored series for a metric. A nil labels map
+	// matches every series of the metric; a non-nil map (even an empty one)
+	// matches only the series whose label set is exactly equal.
 	TargetSeries(targetID, metric string, labels map[string]string) []model.Series
 	LastError() error
 }
@@ -120,10 +124,14 @@ func (s *Server) handleTargetSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	labels, err := decodeLabels(r.URL.Query().Get("labels"))
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "labels query parameter must be a JSON object"})
-		return
+	var labels map[string]string
+	if value := r.URL.Query().Get("labels"); value != "" {
+		decoded, err := decodeLabels(value)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "labels query parameter must be a JSON object"})
+			return
+		}
+		labels = decoded
 	}
 
 	writeJSON(w, http.StatusOK, s.targets.TargetSeries(r.PathValue("targetId"), metric, labels))
@@ -160,14 +168,12 @@ func (s *Server) handleTargetQuality(w http.ResponseWriter, r *http.Request) {
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		log.Printf("write JSON response: %v", err)
+	}
 }
 
 func decodeLabels(value string) (map[string]string, error) {
-	if value == "" {
-		return nil, nil
-	}
-
 	labels := map[string]string{}
 	if err := json.Unmarshal([]byte(value), &labels); err != nil {
 		return nil, err

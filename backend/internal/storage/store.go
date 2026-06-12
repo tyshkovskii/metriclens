@@ -62,6 +62,9 @@ func (s *Store) Record(targetID string, families []model.MetricFamily, scrapedAt
 	}
 }
 
+// Series returns stored series for a metric. A nil labels map matches every
+// series of the metric; a non-nil map (even an empty one) matches only the
+// series whose label set is exactly equal.
 func (s *Store) Series(targetID, metric string, labels map[string]string) []model.Series {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

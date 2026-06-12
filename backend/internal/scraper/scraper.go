@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -33,6 +34,9 @@ type HTTPClient interface {
 
 type SeriesStore interface {
 	Record(targetID string, families []model.MetricFamily, scrapedAt time.Time)
+	// Series returns stored series for a metric. A nil labels map matches
+	// every series of the metric; a non-nil map (even an empty one) matches
+	// only the series whose label set is exactly equal.
 	Series(targetID, metric string, labels map[string]string) []model.Series
 }
 
@@ -71,7 +75,9 @@ func New(containers ContainerLister, prober TargetProber, client HTTPClient, ser
 
 func (s *Scraper) Start(ctx context.Context) {
 	go func() {
-		_ = s.RunOnce(ctx)
+		if err := s.RunOnce(ctx); err != nil {
+			log.Printf("initial scrape failed: %v", err)
+		}
 
 		ticker := time.NewTicker(s.interval)
 		defer ticker.Stop()
@@ -81,7 +87,9 @@ func (s *Scraper) Start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				_ = s.RunOnce(ctx)
+				if err := s.RunOnce(ctx); err != nil {
+					log.Printf("scrape failed: %v", err)
+				}
 			}
 		}
 	}()
@@ -213,6 +221,7 @@ func (s *Scraper) scrapeTarget(ctx context.Context, target model.Target) (model.
 }
 
 func (s *Scraper) get(ctx context.Context, url string) (string, error) {
+	// #nosec G107 -- metric endpoints are intentionally discovered from local Docker metadata.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("create scrape request for %s: %w", url, err)
@@ -222,7 +231,11 @@ func (s *Scraper) get(ctx context.Context, url string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("scrape %s failed: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("close scrape response body: %v", closeErr)
+		}
+	}()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return "", fmt.Errorf("scrape %s returned HTTP %d", url, resp.StatusCode)
