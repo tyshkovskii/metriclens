@@ -4,6 +4,7 @@ import { MetricList } from "./components/MetricList";
 import { PanelChart } from "./components/PanelChart";
 import { TargetTabs } from "./components/TargetTabs";
 import { TimeScrubber } from "./components/TimeScrubber";
+import { useConfig } from "./hooks/useConfig";
 import { useLiveDomain } from "./hooks/useLiveDomain";
 import { useScrub } from "./hooks/useScrub";
 import type { ScrubPosition } from "./hooks/useScrub";
@@ -11,10 +12,8 @@ import { useTargetData } from "./hooks/useTargetData";
 import { useTheme } from "./hooks/useTheme";
 import { chartKind, chartMetric } from "./lib/series";
 import { loadString, loadStringArray, saveString, saveStringArray } from "./lib/storage";
-import type { MetricFamily, PanelKind, Series, Target } from "./types";
+import type { AppConfig, MetricFamily, PanelKind, Series, Target } from "./types";
 
-const POLL_MS = 5000;
-const RETENTION_MS = 15 * 60_000;
 const NUDGE_MS = 5000;
 const LIVE_SNAP_MS = 2500;
 const LAST_TARGET_KEY = "ml-last-target";
@@ -24,6 +23,7 @@ const searchMemory = new Map<string, string>();
 
 export default function App() {
   const { toggle } = useTheme();
+  const config = useConfig();
   const [targets, setTargets] = useState<Target[]>([]);
   const [targetsError, setTargetsError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -50,12 +50,12 @@ export default function App() {
     }
 
     void load();
-    const timer = window.setInterval(load, POLL_MS);
+    const timer = window.setInterval(load, config.scrapeIntervalMs);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [config.scrapeIntervalMs]);
 
   useEffect(() => {
     const onHash = () => setSelectedId(hashTarget());
@@ -107,7 +107,12 @@ export default function App() {
           <span className="flex shrink-0 items-center text-sm tracking-tight">
             metriclens<span className="animate-blink text-accent">_</span>
           </span>
-          <TargetTabs onSelect={select} selectedId={selected?.id ?? null} targets={targets} />
+          <TargetTabs
+            onSelect={select}
+            selectedId={selected?.id ?? null}
+            staleMs={config.scrapeIntervalMs * 3}
+            targets={targets}
+          />
           <button
             aria-label="Toggle theme"
             className="-m-2 shrink-0 self-center p-2 text-sm text-muted hover:text-fg"
@@ -126,6 +131,7 @@ export default function App() {
 
       {selected ? (
         <TargetView
+          config={config}
           key={selected.id}
           onScrubPosition={setScrubPosition}
           scrubPosition={scrubPosition}
@@ -140,10 +146,12 @@ export default function App() {
 
 function TargetView({
   target,
+  config,
   scrubPosition,
   onScrubPosition,
 }: {
   target: Target;
+  config: AppConfig;
   scrubPosition: ScrubPosition | null;
   onScrubPosition: React.Dispatch<React.SetStateAction<ScrubPosition | null>>;
 }) {
@@ -164,7 +172,11 @@ function TargetView({
     saveStringArray(`ml-expanded:${target.id}`, [...expanded]);
   }, [expanded, target.id]);
 
-  const { data, lastUpdated, refresh, previousValue } = useTargetData(target.id, pausedRef);
+  const { data, lastUpdated, refresh, previousValue } = useTargetData(
+    target.id,
+    pausedRef,
+    config.scrapeIntervalMs,
+  );
   const families = useMemo(() => data.metrics?.families ?? [], [data.metrics]);
 
   const sampleNames = useMemo(() => {
@@ -173,7 +185,7 @@ function TargetView({
     return [...names];
   }, [families]);
 
-  const liveDomain = useLiveDomain(RETENTION_MS);
+  const liveDomain = useLiveDomain(config.retentionMs);
   const scrub = useScrub(target.id, sampleNames, refresh, scrubPosition, onScrubPosition);
 
   const scrubbing = scrub.mode === "scrub";
@@ -273,14 +285,14 @@ function TargetView({
     }
 
     void load();
-    const timer = window.setInterval(load, POLL_MS);
+    const timer = window.setInterval(load, config.scrapeIntervalMs);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
     // `scrubbing` re-runs this on resume so fresh series load immediately
     // instead of waiting out the poll interval with a stale timeline end.
-  }, [watchedKey, target.id, scrubbing]);
+  }, [watchedKey, target.id, scrubbing, config.scrapeIntervalMs]);
 
   const toggleExpand = useCallback((name: string) => {
     setExpanded((current) => {

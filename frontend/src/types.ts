@@ -1,5 +1,11 @@
 export type TargetStatus = "up" | "down";
 
+/** Effective backend timing config from /api/config; UI cadence derives from it. */
+export type AppConfig = {
+  scrapeIntervalMs: number;
+  retentionMs: number;
+};
+
 export type Target = {
   id: string;
   serviceName: string;

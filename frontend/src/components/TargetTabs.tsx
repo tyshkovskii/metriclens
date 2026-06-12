@@ -1,14 +1,15 @@
 import type { Target } from "../types";
 
-const STALE_MS = 15_000; // 3x the scrape interval
-
 export function TargetTabs({
   targets,
   selectedId,
+  staleMs,
   onSelect,
 }: {
   targets: Target[];
   selectedId: string | null;
+  /** A scrape older than this is shown as stale; App passes 3x the scrape interval. */
+  staleMs: number;
   onSelect: (id: string) => void;
 }) {
   return (
@@ -31,7 +32,7 @@ export function TargetTabs({
           >
             {index < 9 ? <span className="text-[11px] text-muted">{index + 1}</span> : null}
             <span>{target.serviceName || target.containerName || target.id}</span>
-            <StatusDot active={active} target={target} />
+            <StatusDot active={active} staleMs={staleMs} target={target} />
           </button>
         );
       })}
@@ -39,11 +40,11 @@ export function TargetTabs({
   );
 }
 
-function StatusDot({ target, active }: { target: Target; active: boolean }) {
+function StatusDot({ target, staleMs, active }: { target: Target; staleMs: number; active: boolean }) {
   if (target.status === "down") {
     return <span aria-label="down" className="h-1.5 w-1.5 rounded-full bg-danger" />;
   }
-  const stale = target.lastScrapeAt && Date.now() - Date.parse(target.lastScrapeAt) > STALE_MS;
+  const stale = target.lastScrapeAt && Date.now() - Date.parse(target.lastScrapeAt) > staleMs;
   if (stale) {
     return (
       <span

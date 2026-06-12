@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"metriclens/backend/internal/model"
 )
@@ -45,7 +46,7 @@ func (f fakeTargetStore) LastError() error {
 }
 
 func TestHealth(t *testing.T) {
-	server := NewServer(fakeContainerLister{}, fakeTargetStore{})
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 	rec := httptest.NewRecorder()
 
@@ -65,7 +66,7 @@ func TestHealth(t *testing.T) {
 }
 
 func TestVersion(t *testing.T) {
-	server := NewServer(fakeContainerLister{}, fakeTargetStore{})
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
 	rec := httptest.NewRecorder()
 
@@ -87,6 +88,32 @@ func TestVersion(t *testing.T) {
 	}
 }
 
+func TestConfig(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{
+		ScrapeInterval: 5 * time.Second,
+		Retention:      15 * time.Minute,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var body map[string]int64
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["scrapeIntervalMs"] != 5000 {
+		t.Fatalf("scrapeIntervalMs = %d, want 5000", body["scrapeIntervalMs"])
+	}
+	if body["retentionMs"] != 15*60*1000 {
+		t.Fatalf("retentionMs = %d, want %d", body["retentionMs"], 15*60*1000)
+	}
+}
+
 func TestContainers(t *testing.T) {
 	expected := []model.DiscoveredContainer{
 		{
@@ -104,7 +131,7 @@ func TestContainers(t *testing.T) {
 			},
 		},
 	}
-	server := NewServer(fakeContainerLister{containers: expected}, fakeTargetStore{})
+	server := NewServer(fakeContainerLister{containers: expected}, fakeTargetStore{}, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/containers", nil)
 	rec := httptest.NewRecorder()
 
@@ -130,7 +157,7 @@ func TestContainers(t *testing.T) {
 }
 
 func TestContainersError(t *testing.T) {
-	server := NewServer(fakeContainerLister{err: errors.New("docker unavailable")}, fakeTargetStore{})
+	server := NewServer(fakeContainerLister{err: errors.New("docker unavailable")}, fakeTargetStore{}, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/containers", nil)
 	rec := httptest.NewRecorder()
 
@@ -152,7 +179,7 @@ func TestTargets(t *testing.T) {
 			DiscoveredAt:  "2026-06-06T12:00:00Z",
 		},
 	}
-	server := NewServer(fakeContainerLister{}, fakeTargetStore{targets: expected})
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{targets: expected}, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/targets", nil)
 	rec := httptest.NewRecorder()
 
@@ -178,7 +205,7 @@ func TestTargets(t *testing.T) {
 }
 
 func TestTargetsStoreError(t *testing.T) {
-	server := NewServer(fakeContainerLister{}, fakeTargetStore{lastErr: errors.New("docker unavailable")})
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{lastErr: errors.New("docker unavailable")}, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/targets", nil)
 	rec := httptest.NewRecorder()
 
@@ -209,7 +236,7 @@ func TestTargetMetrics(t *testing.T) {
 			},
 		},
 	}
-	server := NewServer(fakeContainerLister{}, fakeTargetStore{metrics: expected, found: true})
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{metrics: expected, found: true}, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/targets/abc123/metrics", nil)
 	rec := httptest.NewRecorder()
 
@@ -232,7 +259,7 @@ func TestTargetMetrics(t *testing.T) {
 }
 
 func TestTargetMetricsNotFound(t *testing.T) {
-	server := NewServer(fakeContainerLister{}, fakeTargetStore{})
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/targets/missing/metrics", nil)
 	rec := httptest.NewRecorder()
 
@@ -254,7 +281,7 @@ func TestTargetSeries(t *testing.T) {
 			},
 		},
 	}
-	server := NewServer(fakeContainerLister{}, fakeTargetStore{series: expected})
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{series: expected}, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/targets/abc123/series?metric=up", nil)
 	rec := httptest.NewRecorder()
 
@@ -277,7 +304,7 @@ func TestTargetSeries(t *testing.T) {
 }
 
 func TestTargetSeriesRequiresMetric(t *testing.T) {
-	server := NewServer(fakeContainerLister{}, fakeTargetStore{})
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/targets/abc123/series", nil)
 	rec := httptest.NewRecorder()
 
@@ -289,7 +316,7 @@ func TestTargetSeriesRequiresMetric(t *testing.T) {
 }
 
 func TestTargetSeriesRejectsBadLabels(t *testing.T) {
-	server := NewServer(fakeContainerLister{}, fakeTargetStore{})
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/targets/abc123/series?metric=up&labels=nope", nil)
 	rec := httptest.NewRecorder()
 
@@ -333,7 +360,7 @@ func TestTargetPanels(t *testing.T) {
 			},
 		},
 	}
-	server := NewServer(fakeContainerLister{}, fakeTargetStore{metrics: metrics, found: true})
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{metrics: metrics, found: true}, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/targets/abc123/panels", nil)
 	rec := httptest.NewRecorder()
 
@@ -356,7 +383,7 @@ func TestTargetPanels(t *testing.T) {
 }
 
 func TestTargetPanelsNotFound(t *testing.T) {
-	server := NewServer(fakeContainerLister{}, fakeTargetStore{})
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/targets/missing/panels", nil)
 	rec := httptest.NewRecorder()
 
@@ -377,7 +404,7 @@ func TestTargetQuality(t *testing.T) {
 			},
 		},
 	}
-	server := NewServer(fakeContainerLister{}, fakeTargetStore{metrics: metrics, found: true})
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{metrics: metrics, found: true}, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/targets/abc123/quality", nil)
 	rec := httptest.NewRecorder()
 
@@ -400,7 +427,7 @@ func TestTargetQuality(t *testing.T) {
 }
 
 func TestTargetQualityNotFound(t *testing.T) {
-	server := NewServer(fakeContainerLister{}, fakeTargetStore{})
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/targets/missing/quality", nil)
 	rec := httptest.NewRecorder()
 

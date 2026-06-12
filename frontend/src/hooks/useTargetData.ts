@@ -3,7 +3,6 @@ import { loadTargetData } from "../api";
 import { sampleKey } from "../lib/format";
 import type { TargetData } from "../types";
 
-const POLL_MS = 5000;
 const HISTORY_MS = 70_000;
 const DELTA_TARGET_MS = 55_000;
 const DELTA_MIN_MS = 15_000;
@@ -21,10 +20,10 @@ export type PreviousValue = {
 };
 
 /**
- * Polls metrics/quality for a target every 5s.
+ * Polls metrics/quality for a target every `pollMs` (the backend's scrape interval).
  * Skips ticks while `pausedRef.current` is true (time scrubbing).
  */
-export function useTargetData(targetId: string, pausedRef: React.RefObject<boolean>) {
+export function useTargetData(targetId: string, pausedRef: React.RefObject<boolean>, pollMs: number) {
   const [data, setData] = useState<TargetData>(EMPTY);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const historyRef = useRef<Snapshot[]>([]);
@@ -58,12 +57,12 @@ export function useTargetData(targetId: string, pausedRef: React.RefObject<boole
 
     loadRef.current = (force) => void load(force);
     void load(true);
-    const timer = window.setInterval(load, POLL_MS);
+    const timer = window.setInterval(load, pollMs);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [targetId, pausedRef]);
+  }, [targetId, pausedRef, pollMs]);
 
   const refresh = useCallback(() => loadRef.current(true), []);
 

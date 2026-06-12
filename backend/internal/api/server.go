@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"metriclens/backend/internal/classifier"
 	"metriclens/backend/internal/model"
@@ -13,10 +14,19 @@ import (
 
 const Version = "0.1.0"
 
+// Config is the effective runtime configuration, exposed to the frontend via
+// /api/config so UI timing (live window, poll cadence, staleness) follows the
+// backend settings instead of hardcoding their defaults.
+type Config struct {
+	ScrapeInterval time.Duration
+	Retention      time.Duration
+}
+
 type Server struct {
 	mux        *http.ServeMux
 	containers ContainerLister
 	targets    TargetStore
+	config     Config
 }
 
 type ContainerLister interface {
@@ -30,8 +40,8 @@ type TargetStore interface {
 	LastError() error
 }
 
-func NewServer(containers ContainerLister, targets TargetStore) *Server {
-	s := &Server{mux: http.NewServeMux(), containers: containers, targets: targets}
+func NewServer(containers ContainerLister, targets TargetStore, config Config) *Server {
+	s := &Server{mux: http.NewServeMux(), containers: containers, targets: targets, config: config}
 	s.routes()
 	return s
 }
@@ -43,6 +53,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/version", s.handleVersion)
+	s.mux.HandleFunc("GET /api/config", s.handleConfig)
 	s.mux.HandleFunc("GET /api/containers", s.handleContainers)
 	s.mux.HandleFunc("GET /api/targets", s.handleTargets)
 	s.mux.HandleFunc("GET /api/targets/{targetId}/metrics", s.handleTargetMetrics)
@@ -63,6 +74,13 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"name":    "metriclens",
 		"version": Version,
+	})
+}
+
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]int64{
+		"scrapeIntervalMs": s.config.ScrapeInterval.Milliseconds(),
+		"retentionMs":      s.config.Retention.Milliseconds(),
 	})
 }
 

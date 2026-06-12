@@ -1,10 +1,15 @@
 import type {
+  AppConfig,
   MetricQualityIssue,
   Series,
   Target,
   TargetData,
   TargetMetricsResponse,
 } from "./types";
+
+export async function fetchConfig(): Promise<AppConfig> {
+  return fetchJSON<AppConfig>("/api/config");
+}
 
 export async function fetchTargets(): Promise<Target[]> {
   return fetchJSON<Target[]>("/api/targets");

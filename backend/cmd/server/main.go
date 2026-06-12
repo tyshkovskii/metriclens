@@ -31,7 +31,10 @@ func main() {
 	scraperService := scraper.New(containers, prober.NewDefault(), nil, seriesStore, interval)
 	scraperService.Start(context.Background())
 
-	server := api.NewServer(containers, scraperService)
+	server := api.NewServer(containers, scraperService, api.Config{
+		ScrapeInterval: interval,
+		Retention:      retention,
+	})
 
 	log.Printf("metriclens listening on %s", addr)
 	if err := http.ListenAndServe(addr, server); err != nil {
