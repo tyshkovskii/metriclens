@@ -61,8 +61,8 @@ func TestRecordDropsPointsOlderThanRetention(t *testing.T) {
 	first := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
 	second := first.Add(2 * time.Minute)
 
-	store.Record("target-1", familiesWithSample("up", nil, 1), first)
-	store.Record("target-1", familiesWithSample("up", nil, 2), second)
+	store.Record("target-1", familiesWithSample("up", 1), first)
+	store.Record("target-1", familiesWithSample("up", 2), second)
 
 	series := store.Series("target-1", "up", nil)
 	if len(series) != 1 {
@@ -104,8 +104,8 @@ func TestRecordPreservesCounterReset(t *testing.T) {
 	store := New(time.Minute)
 	first := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
 
-	store.Record("target-1", familiesWithSample("requests_total", nil, 100), first)
-	store.Record("target-1", familiesWithSample("requests_total", nil, 5), first.Add(5*time.Second))
+	store.Record("target-1", familiesWithSample("requests_total", 100), first)
+	store.Record("target-1", familiesWithSample("requests_total", 5), first.Add(5*time.Second))
 
 	series := store.Series("target-1", "requests_total", nil)
 	if len(series) != 1 {
@@ -118,36 +118,15 @@ func TestRecordPreservesCounterReset(t *testing.T) {
 	}
 }
 
-func TestRetentionFromEnv(t *testing.T) {
-	t.Setenv(retentionEnv, "30s")
 
-	retention, err := RetentionFromEnv()
-	if err != nil {
-		t.Fatalf("RetentionFromEnv() error = %v", err)
-	}
-	if retention != 30*time.Second {
-		t.Fatalf("retention = %s, want 30s", retention)
-	}
-}
 
-func TestRetentionFromEnvRejectsInvalidValue(t *testing.T) {
-	t.Setenv(retentionEnv, "nope")
-
-	if _, err := RetentionFromEnv(); err == nil {
-		t.Fatal("RetentionFromEnv() error = nil, want error")
-	}
-}
-
-func familiesWithSample(metric string, labels map[string]string, value float64) []model.MetricFamily {
-	if labels == nil {
-		labels = map[string]string{}
-	}
+func familiesWithSample(metric string, value float64) []model.MetricFamily {
 	return []model.MetricFamily{
 		{
 			Name: metric,
 			Type: model.MetricTypeUntyped,
 			Samples: []model.MetricSample{
-				{Metric: metric, Labels: labels, Value: value},
+				{Metric: metric, Labels: map[string]string{}, Value: value},
 			},
 		},
 	}

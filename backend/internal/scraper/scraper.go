@@ -16,6 +16,8 @@ import (
 )
 
 const (
+	DefaultInterval = 5 * time.Second
+
 	defaultHTTPTimeout = 2 * time.Second
 	maxScrapeBody      = 10 * 1024 * 1024
 )

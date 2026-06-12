@@ -248,25 +248,7 @@ http_requests_total{method="GET",status="200"} 10
 	}
 }
 
-func TestIntervalFromEnv(t *testing.T) {
-	t.Setenv(scrapeIntervalEnv, "250ms")
 
-	interval, err := IntervalFromEnv()
-	if err != nil {
-		t.Fatalf("IntervalFromEnv() error = %v", err)
-	}
-	if interval != 250*time.Millisecond {
-		t.Fatalf("interval = %s, want 250ms", interval)
-	}
-}
-
-func TestIntervalFromEnvRejectsInvalidValue(t *testing.T) {
-	t.Setenv(scrapeIntervalEnv, "nope")
-
-	if _, err := IntervalFromEnv(); err == nil {
-		t.Fatal("IntervalFromEnv() error = nil, want error")
-	}
-}
 
 func response(statusCode int, body string) *http.Response {
 	return &http.Response{

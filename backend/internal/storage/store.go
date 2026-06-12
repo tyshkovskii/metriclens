@@ -9,6 +9,8 @@ import (
 	"metriclens/backend/internal/model"
 )
 
+const DefaultRetention = 15 * time.Minute
+
 type Store struct {
 	mu        sync.RWMutex
 	retention time.Duration

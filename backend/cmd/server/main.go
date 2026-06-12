@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"time"
 
 	"metriclens/backend/internal/api"
 	"metriclens/backend/internal/discovery"
@@ -12,18 +13,24 @@ import (
 	"metriclens/backend/internal/storage"
 )
 
-func main() {
-	addr := ":9999"
+const (
+	addr              = ":9999"
+	readHeaderTimeout = 5 * time.Second
+	readTimeout       = 10 * time.Second
+	writeTimeout      = 30 * time.Second
+	idleTimeout       = 2 * time.Minute
+)
 
+func main() {
 	containers, err := discovery.NewDockerDiscovery()
 	if err != nil {
 		log.Fatal(err)
 	}
-	interval, err := scraper.IntervalFromEnv()
+	interval, err := durationFromEnv(scrapeIntervalEnv, scraper.DefaultInterval)
 	if err != nil {
 		log.Fatal(err)
 	}
-	retention, err := storage.RetentionFromEnv()
+	retention, err := durationFromEnv(retentionEnv, storage.DefaultRetention)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -36,8 +43,17 @@ func main() {
 		Retention:      retention,
 	})
 
+	httpServer := &http.Server{
+		Addr:              addr,
+		Handler:           server,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+	}
+
 	log.Printf("metriclens listening on %s", addr)
-	if err := http.ListenAndServe(addr, server); err != nil {
+	if err := httpServer.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 }
