@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { THEME_KEY, saveString } from "../lib/storage";
 
 export function useTheme() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
@@ -7,7 +8,7 @@ export function useTheme() {
     setDark((current) => {
       const next = !current;
       document.documentElement.classList.toggle("dark", next);
-      localStorage.setItem("ml-theme", next ? "dark" : "light");
+      saveString(THEME_KEY, next ? "dark" : "light");
       return next;
     });
   }, []);

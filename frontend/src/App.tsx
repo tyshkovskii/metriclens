@@ -12,12 +12,19 @@ import { useTargetData } from "./hooks/useTargetData";
 import { useTheme } from "./hooks/useTheme";
 import { useWatchedSeries } from "./hooks/useWatchedSeries";
 import { chartKind, chartMetric } from "./lib/series";
-import { loadString, loadStringArray, saveString, saveStringArray } from "./lib/storage";
+import {
+  LAST_TARGET_KEY,
+  expandedKey,
+  loadString,
+  loadStringArray,
+  pinsKey,
+  saveString,
+  saveStringArray,
+} from "./lib/storage";
 import type { AppConfig, MetricFamily, ChartKind, Target } from "./types";
 
 const NUDGE_MS = 5000;
 const LIVE_SNAP_MS = 2500;
-const LAST_TARGET_KEY = "ml-last-target";
 
 /** Per-target search text, kept for the session so tab switches don't lose it. */
 const searchMemory = new Map<string, string>();
@@ -160,16 +167,16 @@ function TargetView({
   const searchRef = useRef<HTMLInputElement | null>(null);
   const [search, setSearch] = useState(() => searchMemory.get(target.id) ?? "");
   const [expanded, setExpanded] = useState<Set<string>>(
-    () => new Set(loadStringArray(`ml-expanded:${target.id}`)),
+    () => new Set(loadStringArray(expandedKey(target.id))),
   );
-  const [pinned, setPinned] = useState<string[]>(() => loadStringArray(`ml-pins:${target.id}`));
+  const [pinned, setPinned] = useState<string[]>(() => loadStringArray(pinsKey(target.id)));
 
   useEffect(() => {
     searchMemory.set(target.id, search);
   }, [search, target.id]);
 
   useEffect(() => {
-    saveStringArray(`ml-expanded:${target.id}`, [...expanded]);
+    saveStringArray(expandedKey(target.id), [...expanded]);
   }, [expanded, target.id]);
 
   const { data, lastUpdated, refresh, previousValue } = useTargetData(
@@ -243,7 +250,7 @@ function TargetView({
   }, [scrub, domain, handleScrub]);
 
   useEffect(() => {
-    saveStringArray(`ml-pins:${target.id}`, pinned);
+    saveStringArray(pinsKey(target.id), pinned);
   }, [pinned, target.id]);
 
   // Charts only exist for expanded families and pinned metrics; poll series for exactly those.

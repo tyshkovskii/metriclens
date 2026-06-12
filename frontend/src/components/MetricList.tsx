@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { RefObject } from "react";
 import { familySummary, isRuntimeFamily } from "../lib/schema";
 import type { ScrubView } from "../lib/schema";
-import { loadFlag, saveFlag } from "../lib/storage";
+import { loadFlag, runtimeKey, saveFlag } from "../lib/storage";
 import { FamilyRow } from "./FamilyRow";
 import type { PreviousValue } from "../hooks/useTargetData";
 import type { MetricFamily, MetricQualityIssue, Series } from "../types";
@@ -38,10 +38,10 @@ export function MetricList({
   seriesByMetric: Record<string, Series[]>;
   domain: [number, number] | null;
 }) {
-  const [runtimeOpen, setRuntimeOpen] = useState(() => loadFlag(`ml-runtime:${targetId}`));
+  const [runtimeOpen, setRuntimeOpen] = useState(() => loadFlag(runtimeKey(targetId)));
 
   useEffect(() => {
-    saveFlag(`ml-runtime:${targetId}`, runtimeOpen);
+    saveFlag(runtimeKey(targetId), runtimeOpen);
   }, [runtimeOpen, targetId]);
 
   const issuesByFamily = useMemo(() => {
