@@ -4,13 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"metriclens/backend/internal/model"
+	"metriclens/backend/internal/promtext"
 )
 
 const (
@@ -22,8 +24,6 @@ const (
 var (
 	defaultPaths = []string{"/metrics", "/actuator/prometheus", "/q/metrics"}
 	commonPorts  = []int{3000, 5000, 8000, 8080, 9090, 9091}
-
-	sampleLinePattern = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*(?:\{[^}\r\n]*\})?\s+[-+]?(?:(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?|Inf|NaN)(?:\s+\d+)?$`)
 )
 
 type Prober struct {
@@ -87,6 +87,7 @@ func (p *Prober) probeContainer(ctx context.Context, container model.DiscoveredC
 }
 
 func (p *Prober) probeURL(ctx context.Context, url string) (bool, string) {
+	// #nosec G107 -- metric endpoints are intentionally discovered from local Docker metadata.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return false, fmt.Sprintf("invalid probe URL %q: %v", url, err)
@@ -96,7 +97,11 @@ func (p *Prober) probeURL(ctx context.Context, url string) (bool, string) {
 	if err != nil {
 		return false, fmt.Sprintf("GET %s failed: %v", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("close probe response body: %v", closeErr)
+		}
+	}()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return false, fmt.Sprintf("GET %s returned HTTP %d", url, resp.StatusCode)
@@ -106,7 +111,7 @@ func (p *Prober) probeURL(ctx context.Context, url string) (bool, string) {
 	if err != nil {
 		return false, fmt.Sprintf("GET %s response read failed: %v", url, err)
 	}
-	if !LooksPrometheus(body) {
+	if !promtext.Sniff(body) {
 		return false, fmt.Sprintf("GET %s returned non-Prometheus response", url)
 	}
 	return true, ""
@@ -119,8 +124,9 @@ func candidateURLs(container model.DiscoveredContainer) ([]string, string) {
 	urls := make([]string, 0, len(hosts)*len(ports)*len(defaultPaths))
 	for _, host := range hosts {
 		for _, port := range ports {
+			address := net.JoinHostPort(host, strconv.Itoa(port))
 			for _, path := range defaultPaths {
-				urls = append(urls, fmt.Sprintf("http://%s:%d%s", host, port, path))
+				urls = append(urls, "http://"+address+path)
 			}
 		}
 	}
@@ -190,37 +196,4 @@ func downMessage(configError, lastError string) string {
 		parts = append(parts, "last probe: "+lastError)
 	}
 	return strings.Join(parts, "; ")
-}
-
-func LooksPrometheus(body []byte) bool {
-	text := strings.TrimSpace(string(body))
-	if text == "" {
-		return false
-	}
-
-	lower := strings.ToLower(text)
-	if strings.HasPrefix(lower, "<!doctype html") ||
-		strings.HasPrefix(lower, "<html") ||
-		strings.HasPrefix(lower, "{") ||
-		strings.HasPrefix(lower, "[") {
-		return false
-	}
-
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, "# HELP ") || strings.HasPrefix(line, "# TYPE ") {
-			return true
-		}
-		if strings.HasPrefix(line, "#") {
-			continue
-		}
-		if sampleLinePattern.MatchString(line) {
-			return true
-		}
-	}
-
-	return false
 }
