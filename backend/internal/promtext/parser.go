@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"metriclens/backend/internal/histogram"
 	"metriclens/backend/internal/model"
 )
 
@@ -151,13 +152,9 @@ func (p *textParser) familyNameForSample(metricName string) string {
 		return metricName
 	}
 
-	for _, suffix := range []string{"_bucket", "_sum", "_count"} {
-		if !strings.HasSuffix(metricName, suffix) {
-			continue
-		}
-		baseName := strings.TrimSuffix(metricName, suffix)
-		family, ok := p.families[baseName]
-		if ok && (family.Type == model.MetricTypeHistogram ||
+	if baseName, _, ok := histogram.SplitName(metricName); ok {
+		family, exists := p.families[baseName]
+		if exists && (family.Type == model.MetricTypeHistogram ||
 			family.Type == model.MetricTypeSummary ||
 			family.Type == model.MetricTypeUntyped) {
 			return baseName
