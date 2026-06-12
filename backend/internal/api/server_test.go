@@ -47,7 +47,7 @@ func (f fakeTargetStore) LastError() error {
 
 func TestHealth(t *testing.T) {
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
-	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/health", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)
@@ -67,7 +67,7 @@ func TestHealth(t *testing.T) {
 
 func TestVersion(t *testing.T) {
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
-	req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/version", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)
@@ -93,7 +93,7 @@ func TestConfig(t *testing.T) {
 		ScrapeInterval: 5 * time.Second,
 		Retention:      15 * time.Minute,
 	})
-	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/config", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)
@@ -132,7 +132,7 @@ func TestContainers(t *testing.T) {
 		},
 	}
 	server := NewServer(fakeContainerLister{containers: expected}, fakeTargetStore{}, Config{})
-	req := httptest.NewRequest(http.MethodGet, "/api/containers", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/containers", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)
@@ -158,7 +158,7 @@ func TestContainers(t *testing.T) {
 
 func TestContainersError(t *testing.T) {
 	server := NewServer(fakeContainerLister{err: errors.New("docker unavailable")}, fakeTargetStore{}, Config{})
-	req := httptest.NewRequest(http.MethodGet, "/api/containers", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/containers", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)
@@ -180,7 +180,7 @@ func TestTargets(t *testing.T) {
 		},
 	}
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{targets: expected}, Config{})
-	req := httptest.NewRequest(http.MethodGet, "/api/targets", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)
@@ -206,7 +206,7 @@ func TestTargets(t *testing.T) {
 
 func TestTargetsStoreError(t *testing.T) {
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{lastErr: errors.New("docker unavailable")}, Config{})
-	req := httptest.NewRequest(http.MethodGet, "/api/targets", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)
@@ -237,7 +237,7 @@ func TestTargetMetrics(t *testing.T) {
 		},
 	}
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{metrics: expected, found: true}, Config{})
-	req := httptest.NewRequest(http.MethodGet, "/api/targets/abc123/metrics", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/abc123/metrics", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)
@@ -260,7 +260,7 @@ func TestTargetMetrics(t *testing.T) {
 
 func TestTargetMetricsNotFound(t *testing.T) {
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
-	req := httptest.NewRequest(http.MethodGet, "/api/targets/missing/metrics", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/missing/metrics", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)
@@ -282,7 +282,7 @@ func TestTargetSeries(t *testing.T) {
 		},
 	}
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{series: expected}, Config{})
-	req := httptest.NewRequest(http.MethodGet, "/api/targets/abc123/series?metric=up", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/abc123/series?metric=up", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)
@@ -305,7 +305,7 @@ func TestTargetSeries(t *testing.T) {
 
 func TestTargetSeriesRequiresMetric(t *testing.T) {
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
-	req := httptest.NewRequest(http.MethodGet, "/api/targets/abc123/series", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/abc123/series", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)
@@ -317,7 +317,7 @@ func TestTargetSeriesRequiresMetric(t *testing.T) {
 
 func TestTargetSeriesRejectsBadLabels(t *testing.T) {
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
-	req := httptest.NewRequest(http.MethodGet, "/api/targets/abc123/series?metric=up&labels=nope", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/abc123/series?metric=up&labels=nope", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)
@@ -361,7 +361,7 @@ func TestTargetPanels(t *testing.T) {
 		},
 	}
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{metrics: metrics, found: true}, Config{})
-	req := httptest.NewRequest(http.MethodGet, "/api/targets/abc123/panels", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/abc123/panels", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)
@@ -384,7 +384,7 @@ func TestTargetPanels(t *testing.T) {
 
 func TestTargetPanelsNotFound(t *testing.T) {
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
-	req := httptest.NewRequest(http.MethodGet, "/api/targets/missing/panels", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/missing/panels", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)
@@ -405,7 +405,7 @@ func TestTargetQuality(t *testing.T) {
 		},
 	}
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{metrics: metrics, found: true}, Config{})
-	req := httptest.NewRequest(http.MethodGet, "/api/targets/abc123/quality", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/abc123/quality", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)
@@ -428,7 +428,7 @@ func TestTargetQuality(t *testing.T) {
 
 func TestTargetQualityNotFound(t *testing.T) {
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
-	req := httptest.NewRequest(http.MethodGet, "/api/targets/missing/quality", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/missing/quality", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)

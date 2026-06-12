@@ -1,0 +1,130 @@
+version: "2"
+
+# Keep this file as an explicit bug/security allowlist. `enable-all` is too
+# noisy for agentic work because new stylistic linters can start failing CI
+# without changing project risk.
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+  go: "1.26"
+
+linters:
+  default: none
+  enable:
+    # Security and supply-chain checks.
+    - asciicheck
+    - bidichk
+    - gosec
+    - gomoddirectives
+    - gomodguard_v2
+
+    # HTTP, context, resource-lifetime, and data-flow footguns.
+    - bodyclose
+    - canonicalheader
+    - containedctx
+    - contextcheck
+    - fatcontext
+    - noctx
+    - nosprintfhostport
+    - rowserrcheck
+    - sqlclosecheck
+
+    # Type, enum, directive, and assertion correctness.
+    - asasalint
+    - copyloopvar
+    - durationcheck
+    - exhaustive
+    - forcetypeassert
+    - gocheckcompilerdirectives
+    - gocritic
+    - govet
+    - mirror
+    - musttag
+    - recvcheck
+
+    # Error and nil handling. `errcheck.check-blank` intentionally rejects
+    # `_ = f()` unless there is a narrow reason and a local suppression.
+    - errcheck
+    - errchkjson
+    - errorlint
+    - ineffassign
+    - makezero
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - wastedassign
+
+    # Test correctness and future suppression hygiene.
+    - nolintlint
+    - testifylint
+    - thelper
+    - tparallel
+    - usetesting
+
+    # General analyzers with a good signal-to-noise ratio for this backend.
+    - dupword
+    - loggercheck
+    - misspell
+    - predeclared
+    - reassign
+    - unconvert
+    - unparam
+    - unqueryvet
+    - unused
+    - usestdlibvars
+    - staticcheck
+  settings:
+    copyloopvar:
+      # Catch aliasing the loop variable, not just copying it.
+      check-alias: true
+    errcheck:
+      check-blank: true
+      check-type-assertions: true
+    exhaustive:
+      # Keep enum switch/map checks active without requiring artificial
+      # `default` branches when every known value is handled.
+      check:
+        - switch
+        - map
+    gocritic:
+      # Limit go-critic to diagnostic checks; style/perf/opinionated checks are
+      # useful locally but too noisy as a security gate.
+      enabled-tags:
+        - diagnostic
+    gomoddirectives:
+      # Agent changes should not pin local filesystem replacements in CI.
+      replace-local: false
+      exclude-forbidden: true
+      ignore-forbidden: true
+      toolchain-forbidden: true
+      # This repo intentionally uses a local module path: metriclens/backend.
+      check-module-path: false
+    gomodguard_v2:
+      local-replace-directives: true
+      blocked:
+        - module: github.com/docker/docker
+          recommendations:
+            - github.com/moby/moby/api
+            - github.com/moby/moby/client
+          reason: "Deprecated Docker module previously triggered reachable govulncheck findings."
+    gosec:
+      # Run the whole gosec rule set; inline #nosec comments must explain any
+      # intentional exception at the call site.
+      includes: []
+    govet:
+      enable-all: true
+      disable:
+        # Layout-only and inlining suggestions are not security/correctness
+        # gates, and `inline` is especially churny across Go releases.
+        - fieldalignment
+        - inline
+    makezero:
+      always: true
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

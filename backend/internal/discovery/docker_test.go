@@ -5,16 +5,17 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/network"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 )
 
 type fakeDockerClient struct {
 	containers []container.Summary
 }
 
-func (f fakeDockerClient) ContainerList(context.Context, container.ListOptions) ([]container.Summary, error) {
-	return f.containers, nil
+func (f fakeDockerClient) ContainerList(context.Context, client.ContainerListOptions) (client.ContainerListResult, error) {
+	return client.ContainerListResult{Items: f.containers}, nil
 }
 
 func TestListContainersExcludesSelf(t *testing.T) {
@@ -69,7 +70,7 @@ func TestFromDockerContainerExtractsComposeMetadata(t *testing.T) {
 				"a_net": nil,
 			},
 		},
-		Ports: []container.Port{
+		Ports: []container.PortSummary{
 			{PrivatePort: 8080},
 			{PrivatePort: 8080},
 			{PrivatePort: 9090},

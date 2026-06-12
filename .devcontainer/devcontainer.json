@@ -1,6 +1,6 @@
 {
   "name": "metriclens",
-  "image": "golang:1.25",
+  "image": "golang:1.26.4",
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
   "customizations": {

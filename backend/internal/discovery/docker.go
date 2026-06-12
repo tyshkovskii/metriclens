@@ -2,12 +2,13 @@ package discovery
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sort"
 	"strings"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 
 	"metriclens/backend/internal/model"
 )
@@ -24,26 +25,29 @@ type DockerDiscovery struct {
 }
 
 type dockerClient interface {
-	ContainerList(context.Context, container.ListOptions) ([]container.Summary, error)
+	ContainerList(context.Context, client.ContainerListOptions) (client.ContainerListResult, error)
 }
 
 func NewDockerDiscovery() (*DockerDiscovery, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		return nil, err
 	}
-	hostname, _ := os.Hostname()
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil, fmt.Errorf("read hostname: %w", err)
+	}
 	return &DockerDiscovery{client: cli, selfID: hostname}, nil
 }
 
 func (d *DockerDiscovery) ListContainers(ctx context.Context) ([]model.DiscoveredContainer, error) {
-	containers, err := d.client.ContainerList(ctx, container.ListOptions{})
+	result, err := d.client.ContainerList(ctx, client.ContainerListOptions{})
 	if err != nil {
 		return nil, err
 	}
 
-	discovered := make([]model.DiscoveredContainer, 0, len(containers))
-	for _, c := range containers {
+	discovered := make([]model.DiscoveredContainer, 0, len(result.Items))
+	for _, c := range result.Items {
 		if d.excluded(c) {
 			continue
 		}
@@ -111,7 +115,7 @@ func networkNames(c container.Summary) []string {
 	return names
 }
 
-func exposedPorts(ports []container.Port) []int {
+func exposedPorts(ports []container.PortSummary) []int {
 	seen := make(map[int]struct{}, len(ports))
 	for _, port := range ports {
 		if port.PrivatePort == 0 {
