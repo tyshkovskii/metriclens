@@ -1,15 +1,11 @@
 import type { MetricQualityIssue } from "../types";
 
 const DOT: Record<MetricQualityIssue["severity"], string> = {
-  error: "bg-danger",
   warning: "bg-warn",
   info: "bg-muted",
 };
 
 export function worstSeverity(issues: MetricQualityIssue[]): MetricQualityIssue["severity"] {
-  if (issues.some((issue) => issue.severity === "error")) {
-    return "error";
-  }
   if (issues.some((issue) => issue.severity === "warning")) {
     return "warning";
   }
@@ -46,11 +42,7 @@ export function QualityIssueList({ issues }: { issues: MetricQualityIssue[] }) {
         <li className="py-1 text-[11px]" key={`${issue.metric}:${issue.message}`}>
           <span
             className={`mr-2 uppercase tracking-widest ${
-              issue.severity === "error"
-                ? "text-danger"
-                : issue.severity === "warning"
-                  ? "text-warn"
-                  : "text-muted"
+              issue.severity === "warning" ? "text-warn" : "text-muted"
             }`}
           >
             {issue.severity}

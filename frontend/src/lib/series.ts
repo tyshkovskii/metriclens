@@ -1,5 +1,5 @@
 import { labelsText } from "./format";
-import type { MetricFamily, PanelKind, Series, SeriesPoint } from "../types";
+import type { MetricFamily, ChartKind, Series, SeriesPoint } from "../types";
 
 export type NamedSeries = {
   name: string;
@@ -34,7 +34,7 @@ export function valueAt(points: SeriesPoint[], t: number): number | null {
  * the UI does not consume; if charting rules grow, prefer consuming /panels
  * over extending this heuristic.
  */
-export function chartKind(metric: string, type: MetricFamily["type"] | undefined): PanelKind {
+export function chartKind(metric: string, type: MetricFamily["type"] | undefined): ChartKind {
   if (type === "gauge") {
     return "gauge";
   }
@@ -61,7 +61,7 @@ export function chartMetric(family: MetricFamily): string {
   return family.samples[0]?.metric ?? family.name;
 }
 
-export function transformSeries(kind: PanelKind, series: Series[]): Series[] {
+export function transformSeries(kind: ChartKind, series: Series[]): Series[] {
   return kind === "counter_rate" ? perSeriesRates(series) : series;
 }
 

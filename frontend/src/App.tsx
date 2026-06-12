@@ -12,7 +12,7 @@ import { useTargetData } from "./hooks/useTargetData";
 import { useTheme } from "./hooks/useTheme";
 import { chartKind, chartMetric } from "./lib/series";
 import { loadString, loadStringArray, saveString, saveStringArray } from "./lib/storage";
-import type { AppConfig, MetricFamily, PanelKind, Series, Target } from "./types";
+import type { AppConfig, MetricFamily, ChartKind, Series, Target } from "./types";
 
 const NUDGE_MS = 5000;
 const LIVE_SNAP_MS = 2500;
@@ -405,7 +405,7 @@ function EmptyState({ error }: { error: string | null }) {
   );
 }
 
-function kindFor(metric: string, families: MetricFamily[]): PanelKind {
+function kindFor(metric: string, families: MetricFamily[]): ChartKind {
   const family = families.find((candidate) => candidate.samples.some((sample) => sample.metric === metric));
   return chartKind(metric, family?.type);
 }

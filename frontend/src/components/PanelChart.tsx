@@ -14,7 +14,7 @@ import {
 import type { TooltipContentProps, TooltipValueType } from "recharts";
 import { clockTime, compactNumber, formatNumber } from "../lib/format";
 import { buildRows, nameSeries, transformSeries } from "../lib/series";
-import type { PanelKind, Series } from "../types";
+import type { ChartKind, Series } from "../types";
 
 const TICK = { fill: "var(--muted)", fontSize: 11, fontFamily: "var(--font-mono)" } as const;
 const MARGIN = { top: 8, right: 8, left: 0, bottom: 0 } as const;
@@ -30,7 +30,7 @@ export function ChartBody({
   scrubT,
   domain,
 }: {
-  kind: PanelKind;
+  kind: ChartKind;
   series: Series[];
   scrubT: number | null;
   domain: [number, number] | null;
@@ -73,7 +73,7 @@ export function PanelChart({
   onRemove,
 }: {
   metric: string;
-  kind: PanelKind;
+  kind: ChartKind;
   series: Series[];
   scrubT: number | null;
   domain: [number, number] | null;
@@ -99,7 +99,7 @@ export function PanelChart({
   );
 }
 
-export function KindLabel({ kind }: { kind: PanelKind }) {
+export function KindLabel({ kind }: { kind: ChartKind }) {
   return (
     <span className="shrink-0 text-[11px] uppercase tracking-widest text-muted">
       {kind === "counter_rate" ? "rate/s" : "value"}

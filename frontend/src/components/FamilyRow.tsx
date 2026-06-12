@@ -6,7 +6,7 @@ import { chartKind, chartMetric } from "../lib/series";
 import { ChartBody, KindLabel } from "./PanelChart";
 import { QualityBadge, QualityIssueList } from "./QualityBadge";
 import type { PreviousValue } from "../hooks/useTargetData";
-import type { MetricFamily, MetricQualityIssue, PanelKind, Series } from "../types";
+import type { MetricFamily, MetricQualityIssue, ChartKind, Series } from "../types";
 
 export function FamilyRow({
   family,
@@ -117,7 +117,7 @@ function InlineChart({
   onTogglePin,
 }: {
   metric: string;
-  kind: PanelKind;
+  kind: ChartKind;
   series: Series[] | undefined;
   scrub: ScrubView | null;
   domain: [number, number] | null;

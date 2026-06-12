@@ -1,3 +1,9 @@
+/**
+ * Wire types mirrored by hand from backend/internal/model — that package is
+ * the source of truth. When the backend shapes change, update this file in
+ * the same commit.
+ */
+
 export type TargetStatus = "up" | "down";
 
 /** Effective backend timing config from /api/config; UI cadence derives from it. */
@@ -37,10 +43,15 @@ export type TargetMetricsResponse = {
   families: MetricFamily[];
 };
 
-export type PanelKind = "counter_rate" | "gauge";
+/**
+ * How the UI charts a metric. Not a wire type: this is the frontend's own
+ * concept (see lib/series.ts chartKind), distinct from the backend
+ * classifier's PanelKind served at /panels, which the UI does not consume.
+ */
+export type ChartKind = "counter_rate" | "gauge";
 
 export type MetricQualityIssue = {
-  severity: "info" | "warning" | "error";
+  severity: "info" | "warning";
   metric: string;
   message: string;
   suggestion?: string;
