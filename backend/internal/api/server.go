@@ -129,6 +129,11 @@ func (s *Server) handleTargetSeries(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.targets.TargetSeries(r.PathValue("targetId"), metric, labels))
 }
 
+// handleTargetPanels serves full classifier-based panel suggestions. The
+// bundled frontend does not consume this endpoint — it picks chart kinds with
+// the intentionally simpler rule in frontend/src/lib/series.ts (chartKind);
+// /panels exists for external consumers and a future richer dashboard. Keep
+// that split in mind before changing either side's classification rules.
 func (s *Server) handleTargetPanels(w http.ResponseWriter, r *http.Request) {
 	response, ok := s.targets.TargetMetrics(r.PathValue("targetId"))
 	if !ok {

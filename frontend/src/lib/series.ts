@@ -27,7 +27,13 @@ export function valueAt(points: SeriesPoint[], t: number): number | null {
   return found >= 0 ? points[found].value : null;
 }
 
-/** How to chart a metric: cumulative metrics as per-second rates, everything else as raw values. */
+/**
+ * How to chart a metric: cumulative metrics as per-second rates, everything
+ * else as raw values. This is deliberately simpler than the backend's
+ * classifier (internal/classifier, served at /api/targets/{id}/panels), which
+ * the UI does not consume; if charting rules grow, prefer consuming /panels
+ * over extending this heuristic.
+ */
 export function chartKind(metric: string, type: MetricFamily["type"] | undefined): PanelKind {
   if (type === "gauge") {
     return "gauge";
