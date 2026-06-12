@@ -91,7 +91,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleContainers(w http.ResponseWriter, r *http.Request) {
 	containers, err := s.containers.ListContainers(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, containers)
@@ -101,7 +101,7 @@ func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 	targets := s.targets.Targets()
 	if len(targets) == 0 {
 		if err := s.targets.LastError(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
@@ -111,7 +111,7 @@ func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTargetMetrics(w http.ResponseWriter, r *http.Request) {
 	response, ok := s.targets.TargetMetrics(r.PathValue("targetId"))
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "target not found"})
+		writeError(w, http.StatusNotFound, "target not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -120,7 +120,7 @@ func (s *Server) handleTargetMetrics(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTargetSeries(w http.ResponseWriter, r *http.Request) {
 	metric := r.URL.Query().Get("metric")
 	if metric == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "metric query parameter is required"})
+		writeError(w, http.StatusBadRequest, "metric query parameter is required")
 		return
 	}
 
@@ -128,7 +128,7 @@ func (s *Server) handleTargetSeries(w http.ResponseWriter, r *http.Request) {
 	if value := r.URL.Query().Get("labels"); value != "" {
 		decoded, err := decodeLabels(value)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "labels query parameter must be a JSON object"})
+			writeError(w, http.StatusBadRequest, "labels query parameter must be a JSON object")
 			return
 		}
 		labels = decoded
@@ -145,7 +145,7 @@ func (s *Server) handleTargetSeries(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTargetPanels(w http.ResponseWriter, r *http.Request) {
 	response, ok := s.targets.TargetMetrics(r.PathValue("targetId"))
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "target not found"})
+		writeError(w, http.StatusNotFound, "target not found")
 		return
 	}
 
@@ -158,11 +158,16 @@ func (s *Server) handleTargetPanels(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTargetQuality(w http.ResponseWriter, r *http.Request) {
 	response, ok := s.targets.TargetMetrics(r.PathValue("targetId"))
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "target not found"})
+		writeError(w, http.StatusNotFound, "target not found")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, quality.Analyze(response.Families))
+}
+
+// writeError is the single place that decides the API error body shape.
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, map[string]string{"error": message})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
