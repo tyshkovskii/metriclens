@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchSeries } from "../api";
+import { fetchSeriesByMetric } from "../api";
 import type { Series } from "../types";
 
 export type ScrubPosition = {
@@ -59,16 +59,9 @@ export function useScrub(
     fetchedRef.current = true;
     setLoading(true);
     let cancelled = false;
-    void Promise.all(
-      namesKey.split(" ").map((name) =>
-        fetchSeries(targetId, name).then(
-          (result) => [name, result] as const,
-          () => [name, [] as Series[]] as const,
-        ),
-      ),
-    ).then((entries) => {
+    void fetchSeriesByMetric(targetId, namesKey.split(" ")).then((result) => {
       if (!cancelled) {
-        setSeries(Object.fromEntries(entries));
+        setSeries(result);
         setLoading(false);
       }
     });

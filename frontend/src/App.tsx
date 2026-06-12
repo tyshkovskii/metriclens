@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchSeries, fetchTargets } from "./api";
+import { fetchTargets } from "./api";
 import { MetricList } from "./components/MetricList";
 import { PanelChart } from "./components/PanelChart";
 import { TargetTabs } from "./components/TargetTabs";
@@ -10,9 +10,10 @@ import { useScrub } from "./hooks/useScrub";
 import type { ScrubPosition } from "./hooks/useScrub";
 import { useTargetData } from "./hooks/useTargetData";
 import { useTheme } from "./hooks/useTheme";
+import { useWatchedSeries } from "./hooks/useWatchedSeries";
 import { chartKind, chartMetric } from "./lib/series";
 import { loadString, loadStringArray, saveString, saveStringArray } from "./lib/storage";
-import type { AppConfig, MetricFamily, ChartKind, Series, Target } from "./types";
+import type { AppConfig, MetricFamily, ChartKind, Target } from "./types";
 
 const NUDGE_MS = 5000;
 const LIVE_SNAP_MS = 2500;
@@ -162,7 +163,6 @@ function TargetView({
     () => new Set(loadStringArray(`ml-expanded:${target.id}`)),
   );
   const [pinned, setPinned] = useState<string[]>(() => loadStringArray(`ml-pins:${target.id}`));
-  const [seriesByMetric, setSeriesByMetric] = useState<Record<string, Series[]>>({});
 
   useEffect(() => {
     searchMemory.set(target.id, search);
@@ -257,42 +257,14 @@ function TargetView({
     });
     return [...names].sort();
   }, [pinned, expanded, families]);
-  const watchedKey = watched.join(" ");
 
-  useEffect(() => {
-    const metrics = watchedKey ? watchedKey.split(" ") : [];
-    if (!metrics.length) {
-      setSeriesByMetric({});
-      return;
-    }
-    let cancelled = false;
-
-    async function load() {
-      if (pausedRef.current) {
-        return;
-      }
-      const entries = await Promise.all(
-        metrics.map((metric) =>
-          fetchSeries(target.id, metric).then(
-            (series) => [metric, series] as const,
-            () => [metric, [] as Series[]] as const,
-          ),
-        ),
-      );
-      if (!cancelled) {
-        setSeriesByMetric(Object.fromEntries(entries));
-      }
-    }
-
-    void load();
-    const timer = window.setInterval(load, config.scrapeIntervalMs);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-    // `scrubbing` re-runs this on resume so fresh series load immediately
-    // instead of waiting out the poll interval with a stale timeline end.
-  }, [watchedKey, target.id, scrubbing, config.scrapeIntervalMs]);
+  const seriesByMetric = useWatchedSeries(
+    target.id,
+    watched,
+    pausedRef,
+    scrubbing,
+    config.scrapeIntervalMs,
+  );
 
   const toggleExpand = useCallback((name: string) => {
     setExpanded((current) => {
