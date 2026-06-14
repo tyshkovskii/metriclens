@@ -47,6 +47,7 @@ services:
   api:
     labels:
       metriclens.port: "8080"
+      metriclens.path: "/metrics"
 ```
 
 To hide a service from metriclens, label it `metriclens.exclude: "true"`.

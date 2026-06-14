@@ -51,7 +51,12 @@ func NewServer(containers ContainerLister, targets TargetStore, config Config) *
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.mux.ServeHTTP(w, r)
+	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	startedAt := time.Now()
+	s.mux.ServeHTTP(recorder, r)
+	if recorder.status >= http.StatusBadRequest {
+		log.Printf("%s %s -> %d (%s)", r.Method, r.URL.RequestURI(), recorder.status, time.Since(startedAt).Round(time.Millisecond))
+	}
 }
 
 func (s *Server) routes() {
@@ -64,6 +69,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/targets/{targetId}/series", s.handleTargetSeries)
 	s.mux.HandleFunc("GET /api/targets/{targetId}/panels", s.handleTargetPanels)
 	s.mux.HandleFunc("GET /api/targets/{targetId}/quality", s.handleTargetQuality)
+	s.mux.HandleFunc("GET /api", s.handleAPINotFound)
+	s.mux.HandleFunc("GET /api/", s.handleAPINotFound)
 
 	// Catch-all: serve the embedded frontend. The /api/* patterns above are
 	// more specific, so they take precedence in Go's ServeMux.
@@ -137,11 +144,9 @@ func (s *Server) handleTargetSeries(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.targets.TargetSeries(r.PathValue("targetId"), metric, labels))
 }
 
-// handleTargetPanels serves full classifier-based panel suggestions. The
-// bundled frontend does not consume this endpoint — it picks chart kinds with
-// the intentionally simpler rule in frontend/src/lib/series.ts (chartKind);
-// /panels exists for external consumers and a future richer dashboard. Keep
-// that split in mind before changing either side's classification rules.
+// handleTargetPanels serves classifier-based panel suggestions. The bundled
+// frontend consumes the chart kinds it can render today and falls back to its
+// local heuristic for raw metric charts that are not represented here.
 func (s *Server) handleTargetPanels(w http.ResponseWriter, r *http.Request) {
 	response, ok := s.targets.TargetMetrics(r.PathValue("targetId"))
 	if !ok {
@@ -165,6 +170,10 @@ func (s *Server) handleTargetQuality(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, quality.Analyze(response.Families))
 }
 
+func (s *Server) handleAPINotFound(w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusNotFound, "api endpoint not found")
+}
+
 // writeError is the single place that decides the API error body shape.
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
@@ -184,4 +193,19 @@ func decodeLabels(value string) (map[string]string, error) {
 		return nil, err
 	}
 	return labels, nil
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	if r.wroteHeader {
+		return
+	}
+	r.status = status
+	r.wroteHeader = true
+	r.ResponseWriter.WriteHeader(status)
 }

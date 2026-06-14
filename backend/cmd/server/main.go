@@ -52,7 +52,7 @@ func main() {
 		IdleTimeout:       idleTimeout,
 	}
 
-	log.Printf("metriclens listening on %s", addr)
+	log.Printf("metriclens listening on %s (scrape_interval=%s retention=%s)", addr, interval, retention)
 	if err := httpServer.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}

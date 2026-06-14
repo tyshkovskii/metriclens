@@ -3,11 +3,13 @@
 package web
 
 import (
+	"bytes"
 	"embed"
 	"io/fs"
 	"net/http"
 	"path"
 	"strings"
+	"time"
 )
 
 // dist holds the Vite build output. The Docker build overwrites the committed
@@ -34,19 +36,28 @@ func assets() fs.FS {
 func Handler() http.Handler {
 	files := assets()
 	fileServer := http.FileServer(http.FS(files))
+	index, err := fs.ReadFile(files, "index.html")
+	if err != nil {
+		panic(err)
+	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clean := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 		if clean == "" {
-			clean = "index.html"
+			serveIndex(w, r, index)
+			return
 		}
 
-		if _, err := fs.Stat(files, clean); err != nil {
-			// Not a bundled asset: serve the app shell for SPA routing.
-			r = r.Clone(r.Context())
-			r.URL.Path = "/"
+		if info, err := fs.Stat(files, clean); err == nil && !info.IsDir() {
+			fileServer.ServeHTTP(w, r)
+			return
 		}
 
-		fileServer.ServeHTTP(w, r)
+		// Not a bundled asset: serve the app shell for SPA routing.
+		serveIndex(w, r, index)
 	})
+}
+
+func serveIndex(w http.ResponseWriter, r *http.Request, index []byte) {
+	http.ServeContent(w, r, "index.html", time.Time{}, bytes.NewReader(index))
 }

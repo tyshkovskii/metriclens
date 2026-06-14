@@ -437,3 +437,26 @@ func TestTargetQualityNotFound(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
 }
+
+func TestUnknownAPIPathReturnsJSONNotFound(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/missing", nil)
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+	if contentType := rec.Header().Get("Content-Type"); contentType != "application/json" {
+		t.Fatalf("content-type = %q, want application/json", contentType)
+	}
+
+	var body map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["error"] != "api endpoint not found" {
+		t.Fatalf("error = %q, want api endpoint not found", body["error"])
+	}
+}

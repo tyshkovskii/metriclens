@@ -124,6 +124,7 @@ func TestCandidateURLsPrioritizeLabelPortAndServiceHost(t *testing.T) {
 		ExposedPorts:   []int{8080, 9090},
 		Labels: map[string]string{
 			"metriclens.port": "9000",
+			"metriclens.path": "/custom-metrics",
 		},
 	})
 
@@ -131,10 +132,10 @@ func TestCandidateURLsPrioritizeLabelPortAndServiceHost(t *testing.T) {
 		t.Fatalf("configError = %q, want empty", configError)
 	}
 	wantPrefix := []string{
+		"http://api:9000/custom-metrics",
 		"http://api:9000/metrics",
 		"http://api:9000/actuator/prometheus",
 		"http://api:9000/q/metrics",
-		"http://api:8080/metrics",
 	}
 	if !reflect.DeepEqual(urls[:len(wantPrefix)], wantPrefix) {
 		t.Fatalf("url prefix = %#v, want %#v", urls[:len(wantPrefix)], wantPrefix)
@@ -156,6 +157,24 @@ func TestCandidateURLsReportsInvalidPortLabel(t *testing.T) {
 	}
 	if urls[0] != "http://api:8080/metrics" {
 		t.Fatalf("first url = %q, want exposed port first", urls[0])
+	}
+}
+
+func TestCandidateURLsReportsInvalidPathLabel(t *testing.T) {
+	urls, configError := candidateURLs(model.DiscoveredContainer{
+		Name:           "api-1",
+		ComposeService: "api",
+		ExposedPorts:   []int{8080},
+		Labels: map[string]string{
+			"metriclens.path": "metrics",
+		},
+	})
+
+	if configError == "" {
+		t.Fatal("configError is empty, want invalid path message")
+	}
+	if urls[0] != "http://api:8080/metrics" {
+		t.Fatalf("first url = %q, want default metrics path first", urls[0])
 	}
 }
 

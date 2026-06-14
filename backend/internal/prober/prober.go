@@ -17,6 +17,7 @@ import (
 
 const (
 	portLabel      = "metriclens.port"
+	pathLabel      = "metriclens.path"
 	maxProbeBody   = 1024 * 1024
 	defaultTimeout = 2 * time.Second
 )
@@ -119,13 +120,21 @@ func (p *Prober) probeURL(ctx context.Context, url string) (bool, string) {
 
 func candidateURLs(container model.DiscoveredContainer) ([]string, string) {
 	hosts := candidateHosts(container)
-	ports, configError := candidatePorts(container)
+	ports, portConfigError := candidatePorts(container)
+	paths, pathConfigError := candidatePaths(container)
+	configError := portConfigError
+	if pathConfigError != "" {
+		if configError != "" {
+			configError += "; "
+		}
+		configError += pathConfigError
+	}
 
-	urls := make([]string, 0, len(hosts)*len(ports)*len(defaultPaths))
+	urls := make([]string, 0, len(hosts)*len(ports)*len(paths))
 	for _, host := range hosts {
 		for _, port := range ports {
 			address := net.JoinHostPort(host, strconv.Itoa(port))
-			for _, path := range defaultPaths {
+			for _, path := range paths {
 				urls = append(urls, "http://"+address+path)
 			}
 		}
@@ -176,6 +185,26 @@ func candidatePorts(container model.DiscoveredContainer) ([]int, string) {
 	return ports, configError
 }
 
+func candidatePaths(container model.DiscoveredContainer) ([]string, string) {
+	seen := map[string]struct{}{}
+	paths := make([]string, 0, 1+len(defaultPaths))
+	var configError string
+
+	if rawPath := strings.TrimSpace(container.Labels[pathLabel]); rawPath != "" {
+		if strings.HasPrefix(rawPath, "/") {
+			paths = appendPath(paths, seen, rawPath)
+		} else {
+			configError = fmt.Sprintf("invalid %s label %q", pathLabel, rawPath)
+		}
+	}
+
+	for _, path := range defaultPaths {
+		paths = appendPath(paths, seen, path)
+	}
+
+	return paths, configError
+}
+
 func appendPort(ports []int, seen map[int]struct{}, port int) []int {
 	if port <= 0 || port > 65535 {
 		return ports
@@ -185,6 +214,14 @@ func appendPort(ports []int, seen map[int]struct{}, port int) []int {
 	}
 	seen[port] = struct{}{}
 	return append(ports, port)
+}
+
+func appendPath(paths []string, seen map[string]struct{}, path string) []string {
+	if _, ok := seen[path]; ok {
+		return paths
+	}
+	seen[path] = struct{}{}
+	return append(paths, path)
 }
 
 func downMessage(configError, lastError string) string {
