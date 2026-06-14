@@ -5,7 +5,7 @@ import { useTargetData } from "../hooks/useTargetData";
 import { useTimelineControls } from "../hooks/useTimelineControls";
 import { useWatchedSeries } from "../hooks/useWatchedSeries";
 import { isEditable } from "../lib/dom";
-import { chartKindForMetric, chartMetric, chartSpecForPanel } from "../lib/series";
+import { chartKindForMetric, chartMetric } from "../lib/series";
 import type { ChartSpec } from "../lib/series";
 import { expandedKey, loadStringArray, pinsKey, saveStringArray } from "../lib/storage";
 import type { ChartKind, MetricFamily, SuggestedPanel, Target } from "../types";
@@ -100,16 +100,9 @@ export function TargetView({
     saveStringArray(pinsKey(target.id), pinned);
   }, [pinned, target.id]);
 
-  const suggestedCharts = useMemo(
-    () =>
-      data.panels
-        .map(chartSpecForPanel)
-        .filter((panel): panel is ChartSpec => panel !== null)
-        .map((panel) => ({ ...panel, removable: false })),
-    [data.panels],
-  );
-
-  const pinnedCharts = useMemo(
+  // The dashboard holds only the metrics the user has pinned — nothing is added
+  // by default. Backend `data.panels` are still used below for chart-kind hints.
+  const dashboardCharts = useMemo<DashboardChart[]>(
     () =>
       pinned.map((metric) => ({
         id: `pin:${metric}`,
@@ -121,12 +114,7 @@ export function TargetView({
     [pinned, families, data.panels],
   );
 
-  const dashboardCharts = useMemo(
-    () => mergeDashboardCharts(suggestedCharts, pinnedCharts),
-    [suggestedCharts, pinnedCharts],
-  );
-
-  // Charts only exist for suggested panels, expanded families, and pinned metrics; poll series for exactly those.
+  // Charts only exist for expanded families and pinned metrics; poll series for exactly those.
   const watched = useMemo(() => {
     const names = new Set(dashboardCharts.map((chart) => chart.metric));
     expanded.forEach((familyName) => {
@@ -248,18 +236,4 @@ export function TargetView({
 function kindFor(metric: string, families: MetricFamily[], panels: SuggestedPanel[]): ChartKind {
   const family = families.find((candidate) => candidate.samples.some((sample) => sample.metric === metric));
   return chartKindForMetric(metric, family?.type, panels);
-}
-
-function mergeDashboardCharts(suggested: DashboardChart[], pinned: DashboardChart[]): DashboardChart[] {
-  const seen = new Set<string>();
-  const charts: DashboardChart[] = [];
-  for (const chart of [...suggested, ...pinned]) {
-    const key = `${chart.kind}:${chart.metric}`;
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    charts.push(chart);
-  }
-  return charts;
 }

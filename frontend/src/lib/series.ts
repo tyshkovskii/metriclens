@@ -62,19 +62,6 @@ export function chartKindForMetric(
   return chartKind(metric, type);
 }
 
-export function chartSpecForPanel(panel: SuggestedPanel): ChartSpec | null {
-  const kind = chartKindForPanel(panel);
-  if (!kind) {
-    return null;
-  }
-  return {
-    id: panel.id,
-    title: panel.title,
-    metric: panel.metric,
-    kind,
-  };
-}
-
 function chartKindForPanel(panel: SuggestedPanel): ChartKind | null {
   switch (panel.kind) {
     case "counter_rate":

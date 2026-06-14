@@ -5,7 +5,6 @@ import {
   chartKind,
   chartKindForMetric,
   chartMetric,
-  chartSpecForPanel,
   nameSeries,
   perSeriesRates,
   transformSeries,
@@ -98,37 +97,6 @@ describe("chartKindForMetric", () => {
 
   it("ignores panels whose kind has no chart mapping", () => {
     expect(chartKindForMetric("latency", "gauge", [panel("latency", "histogram_latency")])).toBe("gauge");
-  });
-});
-
-describe("chartSpecForPanel", () => {
-  it("returns null for an unsupported panel kind", () => {
-    const panel: SuggestedPanel = {
-      id: "p",
-      title: "P",
-      kind: "histogram_latency",
-      metric: "m",
-      confidence: 1,
-      reason: "",
-    };
-    expect(chartSpecForPanel(panel)).toBeNull();
-  });
-
-  it("carries id/title/metric through for a supported kind", () => {
-    const panel: SuggestedPanel = {
-      id: "p",
-      title: "Requests",
-      kind: "counter_rate",
-      metric: "http_requests_total",
-      confidence: 1,
-      reason: "",
-    };
-    expect(chartSpecForPanel(panel)).toEqual({
-      id: "p",
-      title: "Requests",
-      metric: "http_requests_total",
-      kind: "counter_rate",
-    });
   });
 });
 
