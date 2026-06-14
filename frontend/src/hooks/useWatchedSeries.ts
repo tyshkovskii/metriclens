@@ -20,6 +20,9 @@ export function useWatchedSeries(
   useEffect(() => {
     const names = metricsKey ? metricsKey.split(" ") : [];
     if (!names.length) {
+      // Clears previously-loaded series when the watch set empties; runs only on
+      // that transition, so there is no cascading-render concern here.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset, see above
       setSeriesByMetric({});
       return;
     }

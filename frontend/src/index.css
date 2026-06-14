@@ -49,8 +49,7 @@
   --color-danger: var(--danger);
   --color-warn: var(--warn);
   --animate-blink: ml-blink 1.2s steps(2, start) infinite;
-  --font-mono:
-    ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
 body {

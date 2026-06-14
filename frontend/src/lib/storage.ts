@@ -34,9 +34,7 @@ export function saveString(key: string, value: string): void {
 export function loadStringArray(key: string): string[] {
   try {
     const parsed: unknown = JSON.parse(window.localStorage.getItem(key) ?? "null");
-    return Array.isArray(parsed)
-      ? parsed.filter((entry): entry is string => typeof entry === "string")
-      : [];
+    return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string") : [];
   } catch {
     return [];
   }

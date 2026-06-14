@@ -57,7 +57,12 @@ export function ChartBody({
         {kind === "gauge" ? (
           <GaugeChart domain={domain} named={named.map((entry) => entry.name)} rows={rows} scrubT={scrubT} />
         ) : (
-          <StackedChart domain={domain} named={named.map((entry) => entry.name)} rows={rows} scrubT={scrubT} />
+          <StackedChart
+            domain={domain}
+            named={named.map((entry) => entry.name)}
+            rows={rows}
+            scrubT={scrubT}
+          />
         )}
       </div>
     </div>
@@ -79,7 +84,7 @@ export function PanelChart({
   series: Series[];
   scrubT: number | null;
   domain: [number, number] | null;
-  onRemove?: () => void;
+  onRemove?: (() => void) | undefined;
 }) {
   const label = title ?? metric;
   return (
@@ -210,7 +215,7 @@ function EmptyChart({ label = "waiting for samples" }: { label?: string }) {
 
 function renderTip(props: TooltipContentProps<TooltipValueType, number | string>) {
   const { active, payload, label } = props;
-  if (!active || !payload?.length) {
+  if (!active || !payload.length) {
     return null;
   }
   return (

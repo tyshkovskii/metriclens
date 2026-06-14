@@ -60,11 +60,20 @@ export async function loadTargetData(targetId: string): Promise<TargetData> {
 
 async function fetchJSON<T>(path: string): Promise<T> {
   const response = await fetch(path, { headers: { Accept: "application/json" } });
-  const body = await response.json().catch(() => null);
+  const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(body?.error || response.statusText || "request failed");
+    throw new Error(errorField(body) || response.statusText || "request failed");
   }
   return body as T;
+}
+
+/** Pull a string `error` field from a JSON error envelope, if present. */
+function errorField(body: unknown): string | null {
+  if (typeof body === "object" && body !== null && "error" in body) {
+    const { error } = body;
+    return typeof error === "string" ? error : null;
+  }
+  return null;
 }
 
 function messageFromError(error: unknown) {

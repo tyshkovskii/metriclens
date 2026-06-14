@@ -24,14 +24,15 @@ export function valueAt(points: SeriesPoint[], t: number): number | null {
   let found = -1;
   while (low <= high) {
     const mid = (low + high) >> 1;
-    if (Date.parse(points[mid].ts) <= t) {
+    const point = points[mid];
+    if (point && Date.parse(point.ts) <= t) {
       found = mid;
       low = mid + 1;
     } else {
       high = mid - 1;
     }
   }
-  return found >= 0 ? points[found].value : null;
+  return found >= 0 ? (points[found]?.value ?? null) : null;
 }
 
 /** Fallback chart choice when no supported backend panel names the metric. */
@@ -43,10 +44,7 @@ export function chartKind(metric: string, type: MetricFamily["type"] | undefined
     return metric.endsWith("_count") ? "counter_rate" : "gauge";
   }
   const cumulative =
-    type === "counter" ||
-    type === "histogram" ||
-    metric.endsWith("_total") ||
-    metric.endsWith("_count");
+    type === "counter" || type === "histogram" || metric.endsWith("_total") || metric.endsWith("_count");
   return cumulative ? "counter_rate" : "gauge";
 }
 
@@ -115,6 +113,9 @@ function ratePoints(points: SeriesPoint[]): SeriesPoint[] {
   for (let index = 1; index < points.length; index += 1) {
     const previous = points[index - 1];
     const current = points[index];
+    if (!previous || !current) {
+      continue;
+    }
     const seconds = (Date.parse(current.ts) - Date.parse(previous.ts)) / 1000;
     if (seconds <= 0) {
       continue;
@@ -132,11 +133,12 @@ function ratePoints(points: SeriesPoint[]): SeriesPoint[] {
  */
 export function nameSeries(series: Series[]): NamedSeries[] {
   const nonEmpty = series.filter((entry) => entry.points.length > 0);
-  if (!nonEmpty.length) {
+  const sole = nonEmpty[0];
+  if (!sole) {
     return [];
   }
   if (nonEmpty.length === 1) {
-    return [{ name: legendName(nonEmpty[0].labels, null), points: nonEmpty[0].points }];
+    return [{ name: legendName(sole.labels, null), points: sole.points }];
   }
 
   const distinctValues = new Map<string, Set<string>>();
@@ -181,8 +183,9 @@ function legendName(labels: Record<string, string>, key: string | null) {
 }
 
 function sumPoints(lists: SeriesPoint[][]): SeriesPoint[] {
-  if (lists.length === 1) {
-    return lists[0];
+  const [first] = lists;
+  if (lists.length === 1 && first) {
+    return first;
   }
   const byTime = new Map<string, number>();
   lists.forEach((points) => {
@@ -196,7 +199,7 @@ function sumPoints(lists: SeriesPoint[][]): SeriesPoint[] {
 }
 
 function lastValue(points: SeriesPoint[]) {
-  return points.length ? points[points.length - 1].value : 0;
+  return points[points.length - 1]?.value ?? 0;
 }
 
 /** Union of timestamps across series; gaps filled with `fill` (0 for stacking, null for lines). */
@@ -212,7 +215,7 @@ export function buildRows(named: NamedSeries[], fill: 0 | null): StackRow[] {
   return sorted.map((ts) => {
     const row: StackRow = { ts };
     named.forEach((entry, index) => {
-      row[entry.name] = lookups[index].get(ts) ?? fill;
+      row[entry.name] = lookups[index]?.get(ts) ?? fill;
     });
     return row;
   });

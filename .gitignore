@@ -30,6 +30,7 @@ pnpm-debug.log*
 # Node/Vite frontend
 frontend/node_modules/
 frontend/dist/
+frontend/coverage/
 frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts

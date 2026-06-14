@@ -5,7 +5,7 @@ const DOT: Record<MetricQualityIssue["severity"], string> = {
   info: "bg-muted",
 };
 
-export function worstSeverity(issues: MetricQualityIssue[]): MetricQualityIssue["severity"] {
+function worstSeverity(issues: MetricQualityIssue[]): MetricQualityIssue["severity"] {
   if (issues.some((issue) => issue.severity === "warning")) {
     return "warning";
   }

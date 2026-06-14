@@ -49,11 +49,7 @@ export function TargetView({
     saveStringArray(expandedKey(target.id), [...expanded]);
   }, [expanded, target.id]);
 
-  const { data, lastUpdated, refresh, previousValue } = useTargetData(
-    target.id,
-    pausedRef,
-    scrapeIntervalMs,
-  );
+  const { data, lastUpdated, refresh, previousValue } = useTargetData(target.id, pausedRef, scrapeIntervalMs);
   const families = useMemo(() => data.metrics?.families ?? [], [data.metrics]);
 
   const sampleNames = useMemo(() => {
@@ -142,13 +138,7 @@ export function TargetView({
     return [...names].sort();
   }, [dashboardCharts, expanded, families]);
 
-  const seriesByMetric = useWatchedSeries(
-    target.id,
-    watched,
-    pausedRef,
-    scrubbing,
-    scrapeIntervalMs,
-  );
+  const seriesByMetric = useWatchedSeries(target.id, watched, pausedRef, scrubbing, scrapeIntervalMs);
 
   const toggleExpand = useCallback((name: string) => {
     setExpanded((current) => {
@@ -184,13 +174,9 @@ export function TargetView({
       />
 
       <main className="mx-auto max-w-6xl px-6 pb-16">
-        {data.error ? (
-          <p className="py-3 text-xs text-danger">{data.error}</p>
-        ) : null}
+        {data.error ? <p className="py-3 text-xs text-danger">{data.error}</p> : null}
         {target.status === "down" && target.lastError ? (
-          <p className="py-3 text-xs text-warn">
-            target down — {target.lastError}
-          </p>
+          <p className="py-3 text-xs text-warn">target down — {target.lastError}</p>
         ) : null}
 
         {data.metrics ? (
@@ -206,7 +192,12 @@ export function TargetView({
               previousValue={previousValue}
               scrub={
                 scrubbing && controls.t !== null
-                  ? { active: true, loading: controls.loading, t: controls.t, seriesByMetric: controls.series }
+                  ? {
+                      active: true,
+                      loading: controls.loading,
+                      t: controls.t,
+                      seriesByMetric: controls.series,
+                    }
                   : null
               }
               search={search}

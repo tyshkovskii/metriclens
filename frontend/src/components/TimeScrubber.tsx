@@ -48,9 +48,7 @@ export function TimeScrubber({
     <div className="border-b border-edge">
       <div className="mx-auto flex max-w-6xl items-start gap-4 px-6 py-3">
         <div className="flex h-10 w-28 shrink-0 flex-col justify-between">
-          <span className="pt-2 text-xs leading-none tabular-nums">
-            {clockTime(live ? now : value)}
-          </span>
+          <span className="pt-2 text-xs leading-none tabular-nums">{clockTime(live ? now : value)}</span>
           <span
             className={`truncate text-[10px] leading-none tabular-nums ${
               !loading && !live ? "text-warn" : "text-muted"

@@ -30,7 +30,10 @@ export function ShortcutOverlay({ onClose }: { onClose: () => void }) {
               <h3 className="mb-2 text-[11px] uppercase tracking-widest text-muted">{group.name}</h3>
               <dl className="space-y-2">
                 {group.hotkeys.map((hotkey) => (
-                  <div className="flex items-center justify-between gap-3" key={`${group.name}-${hotkey.label}`}>
+                  <div
+                    className="flex items-center justify-between gap-3"
+                    key={`${group.name}-${hotkey.label}`}
+                  >
                     <dt className="text-[11px] text-muted">{hotkey.label}</dt>
                     <dd>
                       <HotkeyHint keys={hotkey.keys} />

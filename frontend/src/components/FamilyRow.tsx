@@ -71,9 +71,7 @@ export function FamilyRow({
             </span>
           ) : null}
           {!summary.scalar ? (
-            <span className="shrink-0 text-[11px] tabular-nums text-muted">
-              {summary.seriesCount} series
-            </span>
+            <span className="shrink-0 text-[11px] tabular-nums text-muted">{summary.seriesCount} series</span>
           ) : null}
         </button>
         {badge}
@@ -98,7 +96,12 @@ export function FamilyRow({
             series={seriesByMetric[metric]}
           />
           {summary.scalar ? null : distribution ? (
-            <DistributionBody family={family} previousValue={previousValue} scrub={scrub} unit={summary.unit} />
+            <DistributionBody
+              family={family}
+              previousValue={previousValue}
+              scrub={scrub}
+              unit={summary.unit}
+            />
           ) : (
             <SeriesBody family={family} previousValue={previousValue} scrub={scrub} />
           )}
@@ -147,9 +150,16 @@ function InlineChart({
       </div>
       <div className="h-40 p-2">
         {loading ? (
-          <div className="flex h-full items-center justify-center text-[11px] text-muted">loading history…</div>
+          <div className="flex h-full items-center justify-center text-[11px] text-muted">
+            loading history…
+          </div>
         ) : (
-          <ChartBody domain={domain} kind={kind} scrubT={scrubbing ? (scrub?.t ?? null) : null} series={resolved ?? []} />
+          <ChartBody
+            domain={domain}
+            kind={kind}
+            scrubT={scrubbing ? (scrub?.t ?? null) : null}
+            series={resolved ?? []}
+          />
         )}
       </div>
     </div>
@@ -159,7 +169,7 @@ function InlineChart({
 function TypeBadge({ type, unit }: { type: MetricFamily["type"]; unit: string | null }) {
   return (
     <>
-      <span className="shrink-0 text-[11px] uppercase tracking-wider text-muted">{type || "untyped"}</span>
+      <span className="shrink-0 text-[11px] uppercase tracking-wider text-muted">{type}</span>
       {unit ? <span className="shrink-0 text-[11px] text-muted">{unit}</span> : null}
     </>
   );
@@ -234,13 +244,11 @@ function GroupRow({
     <>
       <div className="flex items-baseline gap-3 px-2 py-1 pl-7 text-xs">
         <span className="min-w-0 flex-1 truncate">{labelsText(group.labels) || "all series"}</span>
-        {group.count?.delta ? <span className="shrink-0 text-[11px] text-muted">{group.count.delta}</span> : null}
-        {group.count ? (
-          <Stat label="count" value={displayValue(group.count, scrub)} />
+        {group.count?.delta ? (
+          <span className="shrink-0 text-[11px] text-muted">{group.count.delta}</span>
         ) : null}
-        {group.sum ? (
-          <Stat label="sum" value={withUnit(displayValue(group.sum, scrub), sum, unit)} />
-        ) : null}
+        {group.count ? <Stat label="count" value={displayValue(group.count, scrub)} /> : null}
+        {group.sum ? <Stat label="sum" value={withUnit(displayValue(group.sum, scrub), sum, unit)} /> : null}
         {avg !== null ? <Stat label="avg" value={withUnit(formatNumber(avg), avg, unit)} /> : null}
       </div>
       {group.quantiles.map((quantile) => (

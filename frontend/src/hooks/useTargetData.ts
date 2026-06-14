@@ -45,12 +45,17 @@ export function useTargetData(targetId: string, pausedRef: React.RefObject<boole
       if (next.metrics) {
         const values = new Map<string, number>();
         next.metrics.families.forEach((family) => {
-          family.samples.forEach((sample) => values.set(sampleKey(sample.metric, sample.labels), sample.value));
+          family.samples.forEach((sample) =>
+            values.set(sampleKey(sample.metric, sample.labels), sample.value),
+          );
         });
         const history = historyRef.current;
         history.push({ at: Date.now(), values });
-        while (history.length && history[0].at < Date.now() - HISTORY_MS) {
+        const cutoff = Date.now() - HISTORY_MS;
+        let oldest = history[0];
+        while (oldest && oldest.at < cutoff) {
           history.shift();
+          oldest = history[0];
         }
       }
     }
@@ -69,10 +74,11 @@ export function useTargetData(targetId: string, pausedRef: React.RefObject<boole
   /** Value of a sample ~60s ago, for trend deltas. Null when not enough history. */
   const previousValue = useCallback((key: string): PreviousValue | null => {
     const history = historyRef.current;
-    if (history.length < 2) {
+    const latest = history[history.length - 1];
+    if (history.length < 2 || !latest) {
       return null;
     }
-    const now = history[history.length - 1].at;
+    const now = latest.at;
     let snapshot: Snapshot | null = null;
     for (const candidate of history) {
       if (now - candidate.at >= DELTA_TARGET_MS) {
@@ -81,10 +87,8 @@ export function useTargetData(targetId: string, pausedRef: React.RefObject<boole
         break;
       }
     }
-    if (!snapshot) {
-      snapshot = history[0];
-    }
-    if (now - snapshot.at < DELTA_MIN_MS) {
+    snapshot ??= history[0] ?? null;
+    if (!snapshot || now - snapshot.at < DELTA_MIN_MS) {
       return null;
     }
     const value = snapshot.values.get(key);

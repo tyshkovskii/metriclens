@@ -43,6 +43,9 @@ function StatusDot({ target, staleMs, active }: { target: Target; staleMs: numbe
   if (target.status === "down") {
     return <span aria-label="down" className="h-1.5 w-1.5 rounded-full bg-danger" />;
   }
+  // Staleness is a relative-time readout; the parent re-renders every poll, so
+  // reading the wall clock here is intentional and fresh enough.
+  // eslint-disable-next-line react-hooks/purity -- intentional relative-time read, see above
   const stale = target.lastScrapeAt && Date.now() - Date.parse(target.lastScrapeAt) > staleMs;
   if (stale) {
     return (

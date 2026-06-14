@@ -60,7 +60,9 @@ export default function App() {
   }, []);
 
   const targetsRef = useRef(targets);
-  targetsRef.current = targets;
+  useEffect(() => {
+    targetsRef.current = targets;
+  }, [targets]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -175,7 +177,10 @@ function selectRelativeTarget(targets: Target[], selectedId: string | null, offs
   }
   const current = targets.findIndex((target) => target.id === selectedId);
   const nextIndex = current === -1 ? 0 : (current + offset + targets.length) % targets.length;
-  window.location.hash = encodeURIComponent(targets[nextIndex].id);
+  const next = targets[nextIndex];
+  if (next) {
+    window.location.hash = encodeURIComponent(next.id);
+  }
 }
 
 function hashTarget(): string | null {
