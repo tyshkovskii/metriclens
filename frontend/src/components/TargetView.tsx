@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { useLiveDomain } from "../hooks/useLiveDomain";
-import { useScrub } from "../hooks/useScrub";
 import type { ScrubPosition } from "../hooks/useScrub";
 import { useTargetData } from "../hooks/useTargetData";
+import { useTimelineControls } from "../hooks/useTimelineControls";
 import { useWatchedSeries } from "../hooks/useWatchedSeries";
 import { isEditable } from "../lib/dom";
 import { chartKindForMetric, chartMetric, chartSpecForPanel } from "../lib/series";
@@ -13,9 +12,6 @@ import type { ChartKind, MetricFamily, SuggestedPanel, Target } from "../types";
 import { MetricList } from "./MetricList";
 import { PanelChart } from "./PanelChart";
 import { TimeScrubber } from "./TimeScrubber";
-
-const NUDGE_MS = 5000;
-const LIVE_SNAP_MS = 2500;
 
 type DashboardChart = ChartSpec & {
   removable: boolean;
@@ -66,55 +62,19 @@ export function TargetView({
     return [...names];
   }, [families]);
 
-  const liveDomain = useLiveDomain(retentionMs);
-  const scrub = useScrub(target.id, sampleNames, refresh, scrubPosition, onScrubPosition);
-
-  const scrubbing = scrub.mode === "scrub";
+  const controls = useTimelineControls(
+    target.id,
+    retentionMs,
+    sampleNames,
+    refresh,
+    scrubPosition,
+    onScrubPosition,
+  );
+  const scrubbing = controls.scrubbing;
 
   useEffect(() => {
     pausedRef.current = scrubbing;
   }, [scrubbing]);
-
-  const domain = scrub.domain ?? liveDomain;
-
-  const handleScrub = useCallback(
-    (t: number) => {
-      // Snap zone scales with the visible span so "drag to the end" lands
-      // within a comfortable ~2% of track instead of a couple of pixels.
-      const snap = Math.max(LIVE_SNAP_MS, (domain[1] - domain[0]) * 0.02);
-      if (scrub.mode === "scrub" && t >= domain[1] - snap) {
-        scrub.goLive();
-        return;
-      }
-      if (scrub.mode === "live" && t >= domain[1] - 1000) {
-        return;
-      }
-      scrub.begin(t, domain);
-    },
-    [scrub, domain],
-  );
-
-  const nudgeScrub = useCallback(
-    (step: number) => {
-      if (step > 0 && scrubPosition) {
-        const snap = Math.max(LIVE_SNAP_MS, (scrubPosition.domain[1] - scrubPosition.domain[0]) * 0.02);
-        if (scrubPosition.t + step >= scrubPosition.domain[1] - snap) {
-          scrub.goLive();
-          return;
-        }
-      }
-      onScrubPosition((current) => {
-        if (current) {
-          return { ...current, t: clampTime(current.t + step, current.domain) };
-        }
-        if (step > 0) {
-          return current;
-        }
-        return { t: clampTime(liveDomain[1] + step, liveDomain), domain: liveDomain };
-      });
-    },
-    [liveDomain, onScrubPosition, scrub, scrubPosition],
-  );
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -128,18 +88,17 @@ export function TargetView({
         event.preventDefault();
         searchRef.current?.focus();
       } else if (event.key === "l") {
-        if (scrub.mode === "scrub") {
-          scrub.goLive();
+        if (controls.scrubbing) {
+          controls.goLive();
         }
       } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         event.preventDefault();
-        const step = event.key === "ArrowLeft" ? -NUDGE_MS : NUDGE_MS;
-        nudgeScrub(step);
+        controls.nudge(event.key === "ArrowLeft" ? -1 : 1);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [scrub, nudgeScrub]);
+  }, [controls]);
 
   useEffect(() => {
     saveStringArray(pinsKey(target.id), pinned);
@@ -209,19 +168,19 @@ export function TargetView({
     );
   }, []);
 
-  const chartDomain = scrubbing ? domain : liveDomain;
+  const chartDomain = controls.chartDomain;
 
   return (
     <>
       <TimeScrubber
-        domain={domain}
+        domain={controls.domain}
         lastUpdated={lastUpdated}
         live={!scrubbing}
-        loading={scrub.loading}
-        onLive={scrub.goLive}
-        onNudge={(direction) => nudgeScrub(direction * NUDGE_MS)}
-        onScrub={handleScrub}
-        value={scrub.t ?? domain[1]}
+        loading={controls.loading}
+        onLive={controls.goLive}
+        onNudge={controls.nudge}
+        onScrub={controls.scrubTo}
+        value={controls.t ?? controls.domain[1]}
       />
 
       <main className="mx-auto max-w-6xl px-6 pb-16">
@@ -246,8 +205,8 @@ export function TargetView({
               pinned={pinned}
               previousValue={previousValue}
               scrub={
-                scrubbing && scrub.t !== null
-                  ? { active: true, loading: scrub.loading, t: scrub.t, seriesByMetric: scrub.series }
+                scrubbing && controls.t !== null
+                  ? { active: true, loading: controls.loading, t: controls.t, seriesByMetric: controls.series }
                   : null
               }
               search={search}
@@ -274,10 +233,10 @@ export function TargetView({
                       kind={chart.kind}
                       metric={chart.metric}
                       onRemove={chart.removable ? () => togglePin(chart.metric) : undefined}
-                      scrubT={scrubbing ? scrub.t : null}
+                      scrubT={scrubbing ? controls.t : null}
                       series={
                         scrubbing
-                          ? (scrub.series?.[chart.metric] ?? seriesByMetric[chart.metric] ?? [])
+                          ? (controls.series?.[chart.metric] ?? seriesByMetric[chart.metric] ?? [])
                           : (seriesByMetric[chart.metric] ?? [])
                       }
                       title={chart.title}
@@ -312,8 +271,4 @@ function mergeDashboardCharts(suggested: DashboardChart[], pinned: DashboardChar
     charts.push(chart);
   }
   return charts;
-}
-
-function clampTime(t: number, domain: [number, number]): number {
-  return Math.min(Math.max(t, domain[0]), domain[1]);
 }

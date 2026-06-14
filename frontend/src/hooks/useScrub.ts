@@ -89,6 +89,6 @@ export function useScrub(
   };
 }
 
-function clamp(t: number, domain: [number, number]): number {
+export function clamp(t: number, domain: [number, number]): number {
   return Math.min(Math.max(t, domain[0]), domain[1]);
 }
