@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { clockTime, shortDuration, shortTime } from "../lib/format";
+import { Keycap } from "./HotkeyHint";
 
 /* Hide major tick labels this close to the track edges so they don't clip. */
 const EDGE_PCT = 4;
@@ -12,6 +13,7 @@ export function TimeScrubber({
   lastUpdated,
   onScrub,
   onLive,
+  onRefresh,
 }: {
   domain: [number, number];
   value: number;
@@ -20,6 +22,7 @@ export function TimeScrubber({
   lastUpdated: Date | null;
   onScrub: (t: number) => void;
   onLive: () => void;
+  onRefresh: () => void;
 }) {
   const [min, max] = domain;
   const span = max - min || 1;
@@ -88,6 +91,20 @@ export function TimeScrubber({
             value={selected}
           />
         </div>
+        <span className="mt-[5px] hidden shrink-0 items-center gap-1 text-[11px] text-muted md:flex">
+          scrub
+          <Keycap value="Left" />
+          <Keycap value="Right" />
+        </span>
+        <button
+          className="mt-[3px] flex h-[22px] shrink-0 items-center gap-1.5 border border-edge px-2 text-[11px] uppercase tracking-widest text-muted transition-colors hover:border-accent hover:text-accent"
+          onClick={onRefresh}
+          title="refresh target  r"
+          type="button"
+        >
+          refresh
+          <Keycap value="R" />
+        </button>
         <button
           aria-pressed={live}
           className={`mt-[3px] flex h-[22px] shrink-0 items-center gap-1.5 border px-2 text-[11px] uppercase tracking-widest transition-colors ${
@@ -103,6 +120,7 @@ export function TimeScrubber({
             className={`h-1.5 w-1.5 rounded-full ${live ? "bg-bg motion-safe:animate-pulse" : "bg-muted"}`}
           />
           live
+          <Keycap className={live ? "border-bg/35 bg-bg/10 text-bg shadow-none" : ""} value="L" />
         </button>
       </div>
     </div>

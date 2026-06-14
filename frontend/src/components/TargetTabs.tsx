@@ -1,4 +1,5 @@
 import type { Target } from "../types";
+import { Keycap } from "./HotkeyHint";
 
 export function TargetTabs({
   targets,
@@ -30,7 +31,7 @@ export function TargetTabs({
             onClick={() => onSelect(target.id)}
             type="button"
           >
-            {index < 9 ? <span className="text-[11px] text-muted">{index + 1}</span> : null}
+            {index < 9 ? <Keycap value={String(index + 1)} /> : null}
             <span>{target.serviceName || target.containerName || target.id}</span>
             <StatusDot active={active} staleMs={staleMs} target={target} />
           </button>

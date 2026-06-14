@@ -4,6 +4,7 @@ import { MetricList } from "./components/MetricList";
 import { PanelChart } from "./components/PanelChart";
 import { TargetTabs } from "./components/TargetTabs";
 import { TimeScrubber } from "./components/TimeScrubber";
+import { HotkeyHint, Keycap } from "./components/HotkeyHint";
 import { useConfig } from "./hooks/useConfig";
 import { useLiveDomain } from "./hooks/useLiveDomain";
 import { useScrub } from "./hooks/useScrub";
@@ -11,6 +12,7 @@ import type { ScrubPosition } from "./hooks/useScrub";
 import { useTargetData } from "./hooks/useTargetData";
 import { useTheme } from "./hooks/useTheme";
 import { useWatchedSeries } from "./hooks/useWatchedSeries";
+import { HOTKEY_GROUPS } from "./lib/hotkeys";
 import { chartKind, chartMetric } from "./lib/series";
 import {
   LAST_TARGET_KEY,
@@ -37,6 +39,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(
     () => hashTarget() ?? loadString(LAST_TARGET_KEY),
   );
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // Lifted scrub position, shared by every target so the timeline survives tab switches.
   const [scrubPosition, setScrubPosition] = useState<ScrubPosition | null>(null);
 
@@ -80,7 +83,16 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && shortcutsOpen) {
+        setShortcutsOpen(false);
+        return;
+      }
       if (isEditable(event.target)) {
+        return;
+      }
+      if (event.key === "?") {
+        event.preventDefault();
+        setShortcutsOpen((open) => !open);
         return;
       }
       if (event.key === "t") {
@@ -93,11 +105,15 @@ export default function App() {
         if (target) {
           window.location.hash = encodeURIComponent(target.id);
         }
+        return;
+      }
+      if (event.key === "n" || event.key === "p") {
+        selectRelativeTarget(targetsRef.current, selectedId, event.key === "n" ? 1 : -1);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggle]);
+  }, [selectedId, shortcutsOpen, toggle]);
 
   const selected = targets.find((target) => target.id === selectedId) ?? targets[0] ?? null;
   const selectedTargetId = selected?.id ?? null;
@@ -122,16 +138,29 @@ export default function App() {
             targets={targets}
           />
           <button
+            aria-expanded={shortcutsOpen}
+            className="hidden shrink-0 items-center gap-2 self-center text-[11px] text-muted hover:text-fg sm:flex"
+            onClick={() => setShortcutsOpen((open) => !open)}
+            title="show shortcuts  ?"
+            type="button"
+          >
+            shortcuts
+            <Keycap value="?" />
+          </button>
+          <button
             aria-label="Toggle theme"
-            className="-m-2 shrink-0 self-center p-2 text-sm text-muted hover:text-fg"
+            className="-m-2 flex shrink-0 items-center gap-2 self-center p-2 text-sm text-muted hover:text-fg"
             onClick={toggle}
             title="toggle theme  t"
             type="button"
           >
             ◐
+            <Keycap className="hidden sm:inline-flex" value="T" />
           </button>
         </div>
       </header>
+
+      {shortcutsOpen ? <ShortcutOverlay onClose={() => setShortcutsOpen(false)} /> : null}
 
       {targetsError ? (
         <p className="mx-auto max-w-6xl px-6 py-3 text-xs text-danger">{targetsError}</p>
@@ -231,6 +260,9 @@ function TargetView({
       if (event.key === "/") {
         event.preventDefault();
         searchRef.current?.focus();
+      } else if (event.key === "r") {
+        event.preventDefault();
+        refresh();
       } else if (event.key === "l") {
         if (scrub.mode === "scrub") {
           scrub.goLive();
@@ -247,7 +279,7 @@ function TargetView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [scrub, domain, handleScrub]);
+  }, [scrub, domain, handleScrub, refresh]);
 
   useEffect(() => {
     saveStringArray(pinsKey(target.id), pinned);
@@ -301,6 +333,7 @@ function TargetView({
         live={!scrubbing}
         loading={scrub.loading}
         onLive={scrub.goLive}
+        onRefresh={refresh}
         onScrub={handleScrub}
         value={scrub.t ?? domain[1]}
       />
@@ -384,9 +417,63 @@ function EmptyState({ error }: { error: string | null }) {
   );
 }
 
+function ShortcutOverlay({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-bg/80 px-4 pt-20 backdrop-blur-sm"
+      onMouseDown={onClose}
+      role="dialog"
+    >
+      <div
+        className="w-full max-w-xl border border-edge bg-bg shadow-[0_18px_60px_color-mix(in_srgb,var(--fg)_14%,transparent)]"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center gap-3 border-b border-edge px-4 py-3">
+          <h2 className="text-xs uppercase tracking-widest text-muted">shortcuts</h2>
+          <button
+            className="ml-auto flex items-center gap-2 text-[11px] text-muted hover:text-fg"
+            onClick={onClose}
+            type="button"
+          >
+            close
+            <Keycap value="Esc" />
+          </button>
+        </div>
+        <div className="grid gap-5 p-4 sm:grid-cols-3">
+          {HOTKEY_GROUPS.map((group) => (
+            <section key={group.name}>
+              <h3 className="mb-2 text-[11px] uppercase tracking-widest text-muted">{group.name}</h3>
+              <dl className="space-y-2">
+                {group.hotkeys.map((hotkey) => (
+                  <div className="flex items-center justify-between gap-3" key={`${group.name}-${hotkey.label}`}>
+                    <dt className="text-[11px] text-muted">{hotkey.label}</dt>
+                    <dd>
+                      <HotkeyHint keys={hotkey.keys} />
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function kindFor(metric: string, families: MetricFamily[]): ChartKind {
   const family = families.find((candidate) => candidate.samples.some((sample) => sample.metric === metric));
   return chartKind(metric, family?.type);
+}
+
+function selectRelativeTarget(targets: Target[], selectedId: string | null, offset: number) {
+  if (!targets.length) {
+    return;
+  }
+  const current = targets.findIndex((target) => target.id === selectedId);
+  const nextIndex = current === -1 ? 0 : (current + offset + targets.length) % targets.length;
+  window.location.hash = encodeURIComponent(targets[nextIndex].id);
 }
 
 function hashTarget(): string | null {

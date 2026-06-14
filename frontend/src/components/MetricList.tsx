@@ -4,6 +4,7 @@ import { familySummary, isRuntimeFamily } from "../lib/schema";
 import type { ScrubView } from "../lib/schema";
 import { loadFlag, runtimeKey, saveFlag } from "../lib/storage";
 import { FamilyRow } from "./FamilyRow";
+import { Keycap } from "./HotkeyHint";
 import type { PreviousValue } from "../hooks/useTargetData";
 import type { MetricFamily, MetricQualityIssue, Series } from "../types";
 
@@ -97,14 +98,18 @@ export function MetricList({
     <section aria-label="Metrics">
       <div className="sticky top-0 z-10 flex items-baseline gap-3 border-b border-edge bg-bg py-2">
         <h2 className="text-[11px] uppercase tracking-widest text-muted">metrics</h2>
-        <input
-          className="w-56 border border-edge bg-transparent px-2 py-1 text-xs placeholder:text-muted focus:border-muted"
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="search  /"
-          ref={searchRef}
-          type="search"
-          value={search}
-        />
+        <label className="relative block">
+          <span className="sr-only">Search metrics</span>
+          <input
+            className="w-56 border border-edge bg-transparent py-1 pl-2 pr-9 text-xs placeholder:text-muted focus:border-muted"
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="search"
+            ref={searchRef}
+            type="search"
+            value={search}
+          />
+          <Keycap className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2" value="/" />
+        </label>
         <span className="text-[11px] text-muted">
           {filteredCount}/{families.length} families
         </span>

@@ -49,14 +49,14 @@ export function FamilyRow({
       <div className="flex min-w-0 items-baseline gap-2 px-2">
         <button
           aria-expanded={expanded}
-          className="flex min-w-0 flex-1 items-baseline gap-2 py-1.5 text-left hover:bg-fg/[0.06]"
+          className="flex min-w-0 flex-1 items-baseline gap-2 overflow-hidden py-1.5 text-left hover:bg-fg/[0.06]"
           onClick={onToggleExpand}
           type="button"
         >
           <span aria-hidden="true" className="w-3 shrink-0 text-[11px] text-muted">
             {expanded ? "▾" : "▸"}
           </span>
-          <span className="shrink-0 text-[13px] font-medium">{family.name}</span>
+          <span className="min-w-0 truncate text-[13px] font-medium">{family.name}</span>
           <TypeBadge type={family.type} unit={summary.unit} />
           {isPinned ? (
             <span className="shrink-0 text-[11px] text-accent" title="pinned to dashboard">
@@ -75,7 +75,7 @@ export function FamilyRow({
           ) : null}
         </button>
         {badge}
-        <span className="min-w-0 truncate text-[11px] text-muted" title={family.help}>
+        <span className="hidden min-w-0 truncate text-[11px] text-muted md:block" title={family.help}>
           {family.help}
         </span>
         {scalarRow?.delta ? <span className="shrink-0 text-[11px] text-muted">{scalarRow.delta}</span> : null}
