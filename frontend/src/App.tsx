@@ -13,7 +13,7 @@ import { LAST_TARGET_KEY, loadString, saveString } from "./lib/storage";
 import type { Target } from "./types";
 
 export default function App() {
-  const { toggle } = useTheme();
+  const { dark, toggle } = useTheme();
   const config = useConfig();
   const [targets, setTargets] = useState<Target[]>([]);
   const [targetsError, setTargetsError] = useState<string | null>(null);
@@ -133,13 +133,15 @@ export default function App() {
             <Keycap value="?" />
           </button>
           <button
-            aria-label="Toggle theme"
-            className="-m-2 flex shrink-0 items-center gap-2 self-center p-2 text-sm text-muted hover:text-fg"
+            aria-checked={dark}
+            aria-label="Dark theme"
+            className="flex shrink-0 items-center gap-2 self-center text-[11px] text-muted hover:text-fg"
             onClick={toggle}
+            role="switch"
             title="toggle theme  t"
             type="button"
           >
-            ◐
+            <span>{dark ? "dark" : "light"}</span>
             <Keycap className="hidden sm:inline-flex" value="T" />
           </button>
         </div>
