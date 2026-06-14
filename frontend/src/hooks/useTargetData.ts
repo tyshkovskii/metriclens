@@ -7,7 +7,7 @@ const HISTORY_MS = 70_000;
 const DELTA_TARGET_MS = 55_000;
 const DELTA_MIN_MS = 15_000;
 
-const EMPTY: TargetData = { issues: [] };
+const EMPTY: TargetData = { panels: [], issues: [] };
 
 type Snapshot = {
   at: number;

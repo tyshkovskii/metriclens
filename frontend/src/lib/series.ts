@@ -1,5 +1,5 @@
 import { labelsText } from "./format";
-import type { MetricFamily, ChartKind, Series, SeriesPoint } from "../types";
+import type { ChartKind, MetricFamily, Series, SeriesPoint, SuggestedPanel } from "../types";
 
 export type NamedSeries = {
   name: string;
@@ -7,6 +7,13 @@ export type NamedSeries = {
 };
 
 export type StackRow = { ts: number } & Record<string, number | null>;
+
+export type ChartSpec = {
+  id: string;
+  title: string;
+  metric: string;
+  kind: ChartKind;
+};
 
 const MAX_SERIES = 8;
 
@@ -27,13 +34,7 @@ export function valueAt(points: SeriesPoint[], t: number): number | null {
   return found >= 0 ? points[found].value : null;
 }
 
-/**
- * How to chart a metric: cumulative metrics as per-second rates, everything
- * else as raw values. This is deliberately simpler than the backend's
- * classifier (internal/classifier, served at /api/targets/{id}/panels), which
- * the UI does not consume; if charting rules grow, prefer consuming /panels
- * over extending this heuristic.
- */
+/** Fallback chart choice when no supported backend panel names the metric. */
 export function chartKind(metric: string, type: MetricFamily["type"] | undefined): ChartKind {
   if (type === "gauge") {
     return "gauge";
@@ -47,6 +48,46 @@ export function chartKind(metric: string, type: MetricFamily["type"] | undefined
     metric.endsWith("_total") ||
     metric.endsWith("_count");
   return cumulative ? "counter_rate" : "gauge";
+}
+
+export function chartKindForMetric(
+  metric: string,
+  type: MetricFamily["type"] | undefined,
+  panels: SuggestedPanel[],
+): ChartKind {
+  for (const panel of panels) {
+    const kind = chartKindForPanel(panel);
+    if (panel.metric === metric && kind) {
+      return kind;
+    }
+  }
+  return chartKind(metric, type);
+}
+
+export function chartSpecForPanel(panel: SuggestedPanel): ChartSpec | null {
+  const kind = chartKindForPanel(panel);
+  if (!kind) {
+    return null;
+  }
+  return {
+    id: panel.id,
+    title: panel.title,
+    metric: panel.metric,
+    kind,
+  };
+}
+
+function chartKindForPanel(panel: SuggestedPanel): ChartKind | null {
+  switch (panel.kind) {
+    case "counter_rate":
+    case "http_rate":
+      return "counter_rate";
+    case "gauge":
+    case "summary_quantiles":
+      return "gauge";
+    default:
+      return null;
+  }
 }
 
 /** The sample metric a family's chart plots: throughput for distributions, the raw samples otherwise. */

@@ -2,6 +2,7 @@ import type {
   AppConfig,
   MetricQualityIssue,
   Series,
+  SuggestedPanel,
   Target,
   TargetData,
   TargetMetricsResponse,
@@ -19,6 +20,10 @@ export async function fetchSeries(targetId: string, metric: string): Promise<Ser
   return fetchJSON<Series[]>(
     `/api/targets/${encodeURIComponent(targetId)}/series?metric=${encodeURIComponent(metric)}`,
   );
+}
+
+export async function fetchPanels(targetId: string): Promise<SuggestedPanel[]> {
+  return fetchJSON<SuggestedPanel[]>(`/api/targets/${encodeURIComponent(targetId)}/panels`);
 }
 
 /**
@@ -42,13 +47,14 @@ export async function fetchSeriesByMetric(
 
 export async function loadTargetData(targetId: string): Promise<TargetData> {
   try {
-    const [metrics, issues] = await Promise.all([
+    const [metrics, panels, issues] = await Promise.all([
       fetchJSON<TargetMetricsResponse>(`/api/targets/${encodeURIComponent(targetId)}/metrics`),
+      fetchPanels(targetId).catch(() => []),
       fetchJSON<MetricQualityIssue[]>(`/api/targets/${encodeURIComponent(targetId)}/quality`).catch(() => []),
     ]);
-    return { metrics, issues };
+    return { metrics, panels, issues };
   } catch (error) {
-    return { issues: [], error: messageFromError(error) };
+    return { panels: [], issues: [], error: messageFromError(error) };
   }
 }
 

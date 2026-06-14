@@ -43,11 +43,26 @@ export type TargetMetricsResponse = {
   families: MetricFamily[];
 };
 
-/**
- * How the UI charts a metric. Not a wire type: this is the frontend's own
- * concept (see lib/series.ts chartKind), distinct from the backend
- * classifier's PanelKind served at /panels, which the UI does not consume.
- */
+export type PanelKind =
+  | "counter_rate"
+  | "gauge"
+  | "histogram_latency"
+  | "http_rate"
+  | "http_error_rate"
+  | "summary_quantiles";
+
+export type SuggestedPanel = {
+  id: string;
+  title: string;
+  kind: PanelKind;
+  metric: string;
+  confidence: number;
+  reason: string;
+  labels?: string[];
+  unit?: string;
+};
+
+/** How the current chart renderer draws a metric. */
 export type ChartKind = "counter_rate" | "gauge";
 
 export type MetricQualityIssue = {
@@ -71,6 +86,7 @@ export type Series = {
 
 export type TargetData = {
   metrics?: TargetMetricsResponse;
+  panels: SuggestedPanel[];
   issues: MetricQualityIssue[];
   error?: string;
 };

@@ -6,7 +6,7 @@ import { loadFlag, runtimeKey, saveFlag } from "../lib/storage";
 import { FamilyRow } from "./FamilyRow";
 import { Keycap } from "./HotkeyHint";
 import type { PreviousValue } from "../hooks/useTargetData";
-import type { MetricFamily, MetricQualityIssue, Series } from "../types";
+import type { MetricFamily, MetricQualityIssue, Series, SuggestedPanel } from "../types";
 
 export function MetricList({
   targetId,
@@ -23,6 +23,7 @@ export function MetricList({
   onTogglePin,
   seriesByMetric,
   domain,
+  panels,
 }: {
   targetId: string;
   families: MetricFamily[];
@@ -38,6 +39,7 @@ export function MetricList({
   onTogglePin: (metric: string) => void;
   seriesByMetric: Record<string, Series[]>;
   domain: [number, number] | null;
+  panels: SuggestedPanel[];
 }) {
   const [runtimeOpen, setRuntimeOpen] = useState(() => loadFlag(runtimeKey(targetId)));
 
@@ -91,6 +93,7 @@ export function MetricList({
       scrub={scrub}
       seriesByMetric={seriesByMetric}
       summary={summaries.get(family.name) ?? familySummary(family)}
+      panels={panels}
     />
   );
 

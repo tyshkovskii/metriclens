@@ -6,15 +6,20 @@ import type { ScrubPosition } from "../hooks/useScrub";
 import { useTargetData } from "../hooks/useTargetData";
 import { useWatchedSeries } from "../hooks/useWatchedSeries";
 import { isEditable } from "../lib/dom";
-import { chartKind, chartMetric } from "../lib/series";
+import { chartKindForMetric, chartMetric, chartSpecForPanel } from "../lib/series";
+import type { ChartSpec } from "../lib/series";
 import { expandedKey, loadStringArray, pinsKey, saveStringArray } from "../lib/storage";
-import type { ChartKind, MetricFamily, Target } from "../types";
+import type { ChartKind, MetricFamily, SuggestedPanel, Target } from "../types";
 import { MetricList } from "./MetricList";
 import { PanelChart } from "./PanelChart";
 import { TimeScrubber } from "./TimeScrubber";
 
 const NUDGE_MS = 5000;
 const LIVE_SNAP_MS = 2500;
+
+type DashboardChart = ChartSpec & {
+  removable: boolean;
+};
 
 /** Per-target search text, kept for the session so tab switches don't lose it. */
 const searchMemory = new Map<string, string>();
@@ -140,9 +145,35 @@ export function TargetView({
     saveStringArray(pinsKey(target.id), pinned);
   }, [pinned, target.id]);
 
-  // Charts only exist for expanded families and pinned metrics; poll series for exactly those.
+  const suggestedCharts = useMemo(
+    () =>
+      data.panels
+        .map(chartSpecForPanel)
+        .filter((panel): panel is ChartSpec => panel !== null)
+        .map((panel) => ({ ...panel, removable: false })),
+    [data.panels],
+  );
+
+  const pinnedCharts = useMemo(
+    () =>
+      pinned.map((metric) => ({
+        id: `pin:${metric}`,
+        title: metric,
+        metric,
+        kind: kindFor(metric, families, data.panels),
+        removable: true,
+      })),
+    [pinned, families, data.panels],
+  );
+
+  const dashboardCharts = useMemo(
+    () => mergeDashboardCharts(suggestedCharts, pinnedCharts),
+    [suggestedCharts, pinnedCharts],
+  );
+
+  // Charts only exist for suggested panels, expanded families, and pinned metrics; poll series for exactly those.
   const watched = useMemo(() => {
-    const names = new Set(pinned);
+    const names = new Set(dashboardCharts.map((chart) => chart.metric));
     expanded.forEach((familyName) => {
       const family = families.find((candidate) => candidate.name === familyName);
       if (family) {
@@ -150,7 +181,7 @@ export function TargetView({
       }
     });
     return [...names].sort();
-  }, [pinned, expanded, families]);
+  }, [dashboardCharts, expanded, families]);
 
   const seriesByMetric = useWatchedSeries(
     target.id,
@@ -224,28 +255,32 @@ export function TargetView({
               seriesByMetric={seriesByMetric}
               setSearch={setSearch}
               targetId={target.id}
+              panels={data.panels}
             />
 
-            {pinned.length ? (
+            {dashboardCharts.length ? (
               <section aria-label="Dashboard" className="mt-10">
                 <div className="flex items-baseline gap-3 pb-3">
                   <h2 className="text-[11px] uppercase tracking-widest text-muted">dashboard</h2>
-                  <span className="text-[11px] tabular-nums text-muted">{pinned.length} pinned</span>
+                  <span className="text-[11px] tabular-nums text-muted">
+                    {dashboardCharts.length} panel{dashboardCharts.length === 1 ? "" : "s"}
+                  </span>
                 </div>
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  {pinned.map((metric) => (
+                  {dashboardCharts.map((chart) => (
                     <PanelChart
                       domain={chartDomain}
-                      key={metric}
-                      kind={kindFor(metric, families)}
-                      metric={metric}
-                      onRemove={() => togglePin(metric)}
+                      key={chart.id}
+                      kind={chart.kind}
+                      metric={chart.metric}
+                      onRemove={chart.removable ? () => togglePin(chart.metric) : undefined}
                       scrubT={scrubbing ? scrub.t : null}
                       series={
                         scrubbing
-                          ? (scrub.series?.[metric] ?? seriesByMetric[metric] ?? [])
-                          : (seriesByMetric[metric] ?? [])
+                          ? (scrub.series?.[chart.metric] ?? seriesByMetric[chart.metric] ?? [])
+                          : (seriesByMetric[chart.metric] ?? [])
                       }
+                      title={chart.title}
                     />
                   ))}
                 </div>
@@ -260,9 +295,23 @@ export function TargetView({
   );
 }
 
-function kindFor(metric: string, families: MetricFamily[]): ChartKind {
+function kindFor(metric: string, families: MetricFamily[], panels: SuggestedPanel[]): ChartKind {
   const family = families.find((candidate) => candidate.samples.some((sample) => sample.metric === metric));
-  return chartKind(metric, family?.type);
+  return chartKindForMetric(metric, family?.type, panels);
+}
+
+function mergeDashboardCharts(suggested: DashboardChart[], pinned: DashboardChart[]): DashboardChart[] {
+  const seen = new Set<string>();
+  const charts: DashboardChart[] = [];
+  for (const chart of [...suggested, ...pinned]) {
+    const key = `${chart.kind}:${chart.metric}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    charts.push(chart);
+  }
+  return charts;
 }
 
 function clampTime(t: number, domain: [number, number]): number {

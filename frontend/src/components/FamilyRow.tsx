@@ -2,11 +2,11 @@ import { useState } from "react";
 import { formatNumber, labelsText, sampleKey } from "../lib/format";
 import { groupHistogram, resolveRows } from "../lib/schema";
 import type { FamilySummary, HistogramGroup, ResolvedRow, ScrubView } from "../lib/schema";
-import { chartKind, chartMetric } from "../lib/series";
+import { chartKindForMetric, chartMetric } from "../lib/series";
 import { ChartBody, KindLabel } from "./PanelChart";
 import { QualityBadge, QualityIssueList } from "./QualityBadge";
 import type { PreviousValue } from "../hooks/useTargetData";
-import type { MetricFamily, MetricQualityIssue, ChartKind, Series } from "../types";
+import type { ChartKind, MetricFamily, MetricQualityIssue, Series, SuggestedPanel } from "../types";
 
 export function FamilyRow({
   family,
@@ -20,6 +20,7 @@ export function FamilyRow({
   onTogglePin,
   seriesByMetric,
   domain,
+  panels,
 }: {
   family: MetricFamily;
   summary: FamilySummary;
@@ -32,11 +33,12 @@ export function FamilyRow({
   onTogglePin: (metric: string) => void;
   seriesByMetric: Record<string, Series[]>;
   domain: [number, number] | null;
+  panels: SuggestedPanel[];
 }) {
   const [issuesOpen, setIssuesOpen] = useState(false);
   const distribution = family.type === "histogram" || family.type === "summary";
   const metric = chartMetric(family);
-  const kind = chartKind(metric, family.type);
+  const kind = chartKindForMetric(metric, family.type, panels);
   const isPinned = pinned.includes(metric);
   const badge = issues.length ? (
     <QualityBadge issues={issues} onToggle={() => setIssuesOpen((open) => !open)} open={issuesOpen} />
