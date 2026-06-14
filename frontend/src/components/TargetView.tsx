@@ -89,6 +89,28 @@ export function TargetView({
     [scrub, domain],
   );
 
+  const nudgeScrub = useCallback(
+    (step: number) => {
+      if (step > 0 && scrubPosition) {
+        const snap = Math.max(LIVE_SNAP_MS, (scrubPosition.domain[1] - scrubPosition.domain[0]) * 0.02);
+        if (scrubPosition.t + step >= scrubPosition.domain[1] - snap) {
+          scrub.goLive();
+          return;
+        }
+      }
+      onScrubPosition((current) => {
+        if (current) {
+          return { ...current, t: clampTime(current.t + step, current.domain) };
+        }
+        if (step > 0) {
+          return current;
+        }
+        return { t: clampTime(liveDomain[1] + step, liveDomain), domain: liveDomain };
+      });
+    },
+    [liveDomain, onScrubPosition, scrub, scrubPosition],
+  );
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (isEditable(event.target)) {
@@ -100,9 +122,6 @@ export function TargetView({
       if (event.key === "/") {
         event.preventDefault();
         searchRef.current?.focus();
-      } else if (event.key === "r") {
-        event.preventDefault();
-        refresh();
       } else if (event.key === "l") {
         if (scrub.mode === "scrub") {
           scrub.goLive();
@@ -110,16 +129,12 @@ export function TargetView({
       } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         event.preventDefault();
         const step = event.key === "ArrowLeft" ? -NUDGE_MS : NUDGE_MS;
-        if (scrub.mode === "scrub" && scrub.t !== null) {
-          handleScrub(scrub.t + step);
-        } else if (step < 0) {
-          handleScrub(domain[1] + step);
-        }
+        nudgeScrub(step);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [scrub, domain, handleScrub, refresh]);
+  }, [scrub, nudgeScrub]);
 
   useEffect(() => {
     saveStringArray(pinsKey(target.id), pinned);
@@ -173,7 +188,7 @@ export function TargetView({
         live={!scrubbing}
         loading={scrub.loading}
         onLive={scrub.goLive}
-        onRefresh={refresh}
+        onNudge={(direction) => nudgeScrub(direction * NUDGE_MS)}
         onScrub={handleScrub}
         value={scrub.t ?? domain[1]}
       />
@@ -248,4 +263,8 @@ export function TargetView({
 function kindFor(metric: string, families: MetricFamily[]): ChartKind {
   const family = families.find((candidate) => candidate.samples.some((sample) => sample.metric === metric));
   return chartKind(metric, family?.type);
+}
+
+function clampTime(t: number, domain: [number, number]): number {
+  return Math.min(Math.max(t, domain[0]), domain[1]);
 }

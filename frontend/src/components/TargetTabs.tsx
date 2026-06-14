@@ -14,18 +14,16 @@ export function TargetTabs({
   onSelect: (id: string) => void;
 }) {
   return (
-    // -mb-px lets tab borders sit on the header rule: inactive bottoms blend
-    // into it, the active tab's bg-colored bottom punches through to the page.
-    <nav aria-label="Detected services" className="-mb-px flex min-w-0 flex-1 items-end gap-1 overflow-x-auto">
+    <nav aria-label="Detected services" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
       {targets.map((target, index) => {
         const active = target.id === selectedId;
         return (
           <button
             aria-current={active ? "page" : undefined}
-            className={`flex h-9 shrink-0 items-center gap-2 border px-3 text-xs transition-colors ${
+            className={`flex h-7 shrink-0 items-center gap-2 border px-2 text-xs transition-colors ${
               active
-                ? "border-edge border-b-bg border-t-accent bg-bg text-fg"
-                : "border-edge text-muted hover:bg-fg/[0.04] hover:text-fg"
+                ? "border-edge bg-fg/[0.06] text-fg"
+                : "border-transparent text-muted hover:border-edge hover:text-fg"
             }`}
             key={target.id}
             onClick={() => onSelect(target.id)}

@@ -23,7 +23,6 @@ export const HOTKEY_GROUPS: HotkeyGroup[] = [
     hotkeys: [
       { keys: ["Left", "Right"], label: "Scrub 5 seconds" },
       { keys: ["L"], label: "Return to live" },
-      { keys: ["R"], label: "Refresh target" },
     ],
   },
   {

@@ -13,7 +13,7 @@ export function TimeScrubber({
   lastUpdated,
   onScrub,
   onLive,
-  onRefresh,
+  onNudge,
 }: {
   domain: [number, number];
   value: number;
@@ -22,7 +22,7 @@ export function TimeScrubber({
   lastUpdated: Date | null;
   onScrub: (t: number) => void;
   onLive: () => void;
-  onRefresh: () => void;
+  onNudge: (direction: -1 | 1) => void;
 }) {
   const [min, max] = domain;
   const span = max - min || 1;
@@ -91,39 +91,81 @@ export function TimeScrubber({
             value={selected}
           />
         </div>
-        <span className="mt-[5px] hidden shrink-0 items-center gap-1 text-[11px] text-muted md:flex">
-          scrub
-          <Keycap value="Left" />
-          <Keycap value="Right" />
-        </span>
-        <button
-          className="mt-[3px] flex h-[22px] shrink-0 items-center gap-1.5 border border-edge px-2 text-[11px] uppercase tracking-widest text-muted transition-colors hover:border-accent hover:text-accent"
-          onClick={onRefresh}
-          title="refresh target  r"
-          type="button"
-        >
-          refresh
-          <Keycap value="R" />
-        </button>
-        <button
-          aria-pressed={live}
-          className={`mt-[3px] flex h-[22px] shrink-0 items-center gap-1.5 border px-2 text-[11px] uppercase tracking-widest transition-colors ${
-            live
-              ? "border-accent bg-accent text-bg"
-              : "border-edge text-muted hover:border-accent hover:text-accent"
-          }`}
-          onClick={onLive}
-          title={live ? "live" : "go live  l"}
-          type="button"
-        >
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${live ? "bg-bg motion-safe:animate-pulse" : "bg-muted"}`}
+        <div className="mt-[3px] flex shrink-0 items-center gap-1.5">
+          <TimelineButton
+            className="hidden md:flex"
+            keyLabel="←"
+            label="back"
+            onClick={() => onNudge(-1)}
+            title="scrub left 5 seconds"
           />
-          live
-          <Keycap className={live ? "border-bg/35 bg-bg/10 text-bg shadow-none" : ""} value="L" />
-        </button>
+          <TimelineButton
+            className="hidden md:flex"
+            disabled={live}
+            keyLabel="→"
+            label="forward"
+            onClick={() => onNudge(1)}
+            title="scrub right 5 seconds"
+          />
+          <TimelineButton
+            active={live}
+            dot
+            keyLabel="L"
+            label="live"
+            onClick={onLive}
+            pressed={live}
+            title={live ? "live" : "go live  l"}
+          />
+        </div>
       </div>
     </div>
+  );
+}
+
+function TimelineButton({
+  label,
+  keyLabel,
+  onClick,
+  active = false,
+  disabled = false,
+  dot = false,
+  pressed,
+  title,
+  className = "",
+}: {
+  label: string;
+  keyLabel: string;
+  onClick: () => void;
+  active?: boolean;
+  disabled?: boolean;
+  dot?: boolean;
+  pressed?: boolean;
+  title?: string;
+  className?: string;
+}) {
+  return (
+    <button
+      aria-pressed={pressed}
+      className={`h-6 w-[88px] shrink-0 items-center justify-between gap-1.5 border px-2 text-[11px] tracking-normal transition-colors disabled:cursor-default disabled:opacity-45 ${
+        active
+          ? "border-accent bg-accent text-bg"
+          : "border-edge text-muted hover:border-accent hover:text-accent disabled:hover:border-edge disabled:hover:text-muted"
+      } ${className || "flex"}`}
+      disabled={disabled}
+      onClick={onClick}
+      title={title}
+      type="button"
+    >
+      <span className="flex items-center gap-1.5">
+        {dot ? (
+          <span
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? "bg-bg motion-safe:animate-pulse" : "bg-muted"}`}
+          />
+        ) : null}
+        <span>{label}</span>
+      </span>
+      <Keycap className={active ? "border-bg/35 bg-transparent text-bg" : ""} value={keyLabel} />
+    </button>
   );
 }
 

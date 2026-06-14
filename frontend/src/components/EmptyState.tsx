@@ -5,7 +5,7 @@ export function EmptyState({ error }: { error: string | null }) {
       <p className="text-xs text-muted">
         {error ? "backend unreachable" : "scanning docker compose services…"}
       </p>
-      <p className="text-[11px] text-muted">services exposing a /metrics endpoint appear here as tabs</p>
+      <p className="text-[11px] text-muted">services exposing a /metrics endpoint appear in the header</p>
     </div>
   );
 }

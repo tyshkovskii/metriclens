@@ -64,6 +64,10 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Tab") {
+        event.preventDefault();
+        return;
+      }
       if (event.key === "Escape" && shortcutsOpen) {
         setShortcutsOpen(false);
         return;

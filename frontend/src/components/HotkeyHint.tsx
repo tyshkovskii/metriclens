@@ -1,7 +1,7 @@
 export function Keycap({ value, className = "" }: { value: string; className?: string }) {
   return (
     <kbd
-      className={`inline-flex h-5 min-w-5 items-center justify-center border border-edge bg-fg/[0.035] px-1.5 text-[10px] font-medium leading-none text-muted shadow-[inset_0_-1px_0_var(--edge)] ${className}`}
+      className={`inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[2px] border border-edge bg-transparent px-1.5 text-[10px] font-normal leading-none text-muted ${className}`}
     >
       {value}
     </kbd>
