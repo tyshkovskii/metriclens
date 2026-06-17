@@ -55,7 +55,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	startedAt := time.Now()
 	s.mux.ServeHTTP(recorder, r)
 	if recorder.status >= http.StatusBadRequest {
-		log.Printf("%s %s -> %d (%s)", r.Method, r.URL.RequestURI(), recorder.status, time.Since(startedAt).Round(time.Millisecond))
+		log.Printf("request failed: status=%d duration=%s", recorder.status, time.Since(startedAt).Round(time.Millisecond))
 	}
 }
 

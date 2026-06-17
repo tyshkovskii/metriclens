@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,7 +9,7 @@ import (
 )
 
 func TestHandlerServesRootIndex(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 
 	Handler().ServeHTTP(rec, req)
@@ -22,7 +23,7 @@ func TestHandlerServesRootIndex(t *testing.T) {
 }
 
 func TestHandlerFallsBackToIndexForClientRoutes(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/targets/abc123", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/targets/abc123", nil)
 	rec := httptest.NewRecorder()
 
 	Handler().ServeHTTP(rec, req)
