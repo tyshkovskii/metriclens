@@ -13,7 +13,7 @@ import (
 	"metriclens/backend/internal/web"
 )
 
-const Version = "0.1.0"
+const Version = "0.2.0"
 
 // Config is the effective runtime configuration, exposed to the frontend via
 // /api/config so UI timing (live window, poll cadence, staleness) follows the
