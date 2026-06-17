@@ -27,11 +27,15 @@ COPY --from=frontend /src/frontend/dist ./internal/web/dist
 
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/metriclens ./cmd/server
 
-# --- Stage 3: minimal runtime image ---
-FROM alpine:3.24
+# --- Stage 3: certificate bundle for the scratch runtime ---
+FROM alpine:3.24 AS certs
 
 RUN apk add --no-cache ca-certificates
 
+# --- Stage 4: minimal runtime image ---
+FROM scratch
+
+COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build /out/metriclens /usr/local/bin/metriclens
 
 EXPOSE 9999
