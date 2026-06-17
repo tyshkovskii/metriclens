@@ -1,10 +1,8 @@
 ![metriclens UI](docs/screenshot.png)
 
-# metriclens
+# metriclens [![Docker image](https://img.shields.io/docker/v/tyshkovskii/metriclens?sort=semver&logo=docker&label=docker)](https://hub.docker.com/r/tyshkovskii/metriclens/tags) [![Docker pulls](https://img.shields.io/docker/pulls/tyshkovskii/metriclens?logo=docker)](https://hub.docker.com/r/tyshkovskii/metriclens)
 
 metriclens is a zero-config, drop-in observability layer for Compose-based development environments, automatically discovering Prometheus metrics and surfacing live charts and instrumentation issues without requiring Prometheus or Grafana.
-
-
 
 ## Try it
 
@@ -24,12 +22,14 @@ Open <http://localhost:9999>. You'll see both services discovered and scraped, w
 
 ## Use it in your project
 
+Published Docker images are available on [Docker Hub](https://hub.docker.com/r/tyshkovskii/metriclens).
+
 Add one service to your existing `docker-compose.yml`:
 
 ```yaml
 services:
   metriclens:
-    image: tyshkovskii/metriclens:0.1
+    image: tyshkovskii/metriclens:latest
     ports:
       - "9999:9999"
     volumes:
@@ -37,6 +37,8 @@ services:
 ```
 
 metriclens finds the other services in your Compose project on its own, locates their metrics endpoints (it tries common ports and paths like `/metrics`), and starts scraping.
+
+Pin a version from the [Docker Hub tags page](https://hub.docker.com/r/tyshkovskii/metriclens/tags) if you want repeatable environments.
 
 ## Configuration
 

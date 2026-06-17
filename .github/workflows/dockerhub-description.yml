@@ -1,0 +1,28 @@
+name: Docker Hub Description
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "docs/dockerhub-overview.md"
+      - ".github/workflows/dockerhub-description.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_USERNAME }}/metriclens
+          short-description: Inspect Prometheus metrics across Docker Compose services in a zero-config local UI.
+          readme-filepath: docs/dockerhub-overview.md
