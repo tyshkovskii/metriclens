@@ -22,7 +22,7 @@ jobs:
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          password: ${{ secrets.DOCKERHUB_DESCRIPTION_TOKEN }}
           repository: tyshkovskii/metriclens
           short-description: Inspect Prometheus metrics across Docker Compose services in a zero-config local UI.
           readme-filepath: docs/dockerhub-overview.md
