@@ -1,10 +1,10 @@
+![metriclens UI](docs/screenshot.png)
+
 # metriclens
 
-**Local Prometheus DevTools for Docker Compose.**
+metriclens is a zero-config, drop-in observability layer for Compose-based development environments, automatically discovering Prometheus metrics and surfacing live charts and instrumentation issues without requiring Prometheus or Grafana.
 
-See your services' Prometheus metrics while you develop — live charts and instrumentation warnings, without setting up Prometheus or Grafana.
 
-![metriclens UI](docs/screenshot.jpeg)
 
 ## Try it
 
