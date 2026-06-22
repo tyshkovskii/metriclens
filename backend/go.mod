@@ -3,8 +3,8 @@ module metriclens/backend
 go 1.26.4
 
 require (
-	github.com/moby/moby/api v1.54.2
-	github.com/moby/moby/client v0.4.1
+	github.com/moby/moby/api v1.55.0
+	github.com/moby/moby/client v0.5.0
 )
 
 require (
