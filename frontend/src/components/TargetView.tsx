@@ -6,16 +6,11 @@ import { useTimelineControls } from "../hooks/useTimelineControls";
 import { useWatchedSeries } from "../hooks/useWatchedSeries";
 import { isEditable } from "../lib/dom";
 import { chartKindForMetric, chartMetric } from "../lib/series";
-import type { ChartSpec } from "../lib/series";
 import { expandedKey, loadStringArray, pinsKey, saveStringArray } from "../lib/storage";
 import type { ChartKind, MetricFamily, SuggestedPanel, Target } from "../types";
 import { MetricList } from "./MetricList";
 import { PanelChart } from "./PanelChart";
 import { TimeScrubber } from "./TimeScrubber";
-
-type DashboardChart = ChartSpec & {
-  removable: boolean;
-};
 
 /** Per-target search text, kept for the session so tab switches don't lose it. */
 const searchMemory = new Map<string, string>();
@@ -100,23 +95,9 @@ export function TargetView({
     saveStringArray(pinsKey(target.id), pinned);
   }, [pinned, target.id]);
 
-  // The dashboard holds only the metrics the user has pinned — nothing is added
-  // by default. Backend `data.panels` are still used below for chart-kind hints.
-  const dashboardCharts = useMemo<DashboardChart[]>(
-    () =>
-      pinned.map((metric) => ({
-        id: `pin:${metric}`,
-        title: metric,
-        metric,
-        kind: kindFor(metric, families, data.panels),
-        removable: true,
-      })),
-    [pinned, families, data.panels],
-  );
-
   // Charts only exist for expanded families and pinned metrics; poll series for exactly those.
   const watched = useMemo(() => {
-    const names = new Set(dashboardCharts.map((chart) => chart.metric));
+    const names = new Set(pinned);
     expanded.forEach((familyName) => {
       const family = families.find((candidate) => candidate.name === familyName);
       if (family) {
@@ -124,7 +105,7 @@ export function TargetView({
       }
     });
     return [...names].sort();
-  }, [dashboardCharts, expanded, families]);
+  }, [pinned, expanded, families]);
 
   const seriesByMetric = useWatchedSeries(target.id, watched, pausedRef, scrubbing, scrapeIntervalMs);
 
@@ -196,29 +177,28 @@ export function TargetView({
               panels={data.panels}
             />
 
-            {dashboardCharts.length ? (
+            {pinned.length ? (
               <section aria-label="Dashboard" className="mt-10">
                 <div className="flex items-baseline gap-3 pb-3">
                   <h2 className="text-[11px] uppercase tracking-widest text-muted">dashboard</h2>
                   <span className="text-[11px] tabular-nums text-muted">
-                    {dashboardCharts.length} panel{dashboardCharts.length === 1 ? "" : "s"}
+                    {pinned.length} panel{pinned.length === 1 ? "" : "s"}
                   </span>
                 </div>
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  {dashboardCharts.map((chart) => (
+                  {pinned.map((metric) => (
                     <PanelChart
                       domain={chartDomain}
-                      key={chart.id}
-                      kind={chart.kind}
-                      metric={chart.metric}
-                      onRemove={chart.removable ? () => togglePin(chart.metric) : undefined}
+                      key={metric}
+                      kind={kindFor(metric, families, data.panels)}
+                      metric={metric}
+                      onRemove={() => togglePin(metric)}
                       scrubT={scrubbing ? controls.t : null}
                       series={
                         scrubbing
-                          ? (controls.series?.[chart.metric] ?? seriesByMetric[chart.metric] ?? [])
-                          : (seriesByMetric[chart.metric] ?? [])
+                          ? (controls.series?.[metric] ?? seriesByMetric[metric] ?? [])
+                          : (seriesByMetric[metric] ?? [])
                       }
-                      title={chart.title}
                     />
                   ))}
                 </div>

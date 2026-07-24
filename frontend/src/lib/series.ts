@@ -8,13 +8,6 @@ export type NamedSeries = {
 
 export type StackRow = { ts: number } & Record<string, number | null>;
 
-export type ChartSpec = {
-  id: string;
-  title: string;
-  metric: string;
-  kind: ChartKind;
-};
-
 const MAX_SERIES = 8;
 
 /** Last value at or before t (epoch ms); null if t precedes the series. */
