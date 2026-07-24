@@ -20,21 +20,14 @@ import (
 //go:embed all:dist
 var dist embed.FS
 
-// assets returns the embedded build rooted at the dist directory.
-func assets() fs.FS {
-	sub, err := fs.Sub(dist, "dist")
-	if err != nil {
-		// Only happens if the embed directive is broken at build time.
-		panic(err)
-	}
-	return sub
-}
-
 // Handler serves the embedded SPA. Requests for real files (index.html, hashed
 // JS/CSS under /assets) are served directly; any other path falls back to
 // index.html so client-side routes such as /targets/:id resolve on reload.
 func Handler() http.Handler {
-	files := assets()
+	files, err := fs.Sub(dist, "dist")
+	if err != nil {
+		panic(err)
+	}
 	fileServer := http.FileServer(http.FS(files))
 	index, err := fs.ReadFile(files, "index.html")
 	if err != nil {
