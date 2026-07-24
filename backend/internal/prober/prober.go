@@ -32,10 +32,6 @@ type Prober struct {
 	now    func() time.Time
 }
 
-func NewDefault() *Prober {
-	return New(&http.Client{Timeout: defaultTimeout})
-}
-
 func New(client *http.Client) *Prober {
 	if client == nil {
 		client = &http.Client{Timeout: defaultTimeout}

@@ -35,7 +35,7 @@ func main() {
 		log.Fatal(err)
 	}
 	seriesStore := storage.New(retention)
-	scraperService := scraper.New(containers, prober.NewDefault(), nil, seriesStore, interval)
+	scraperService := scraper.New(containers, prober.New(nil), nil, seriesStore, interval)
 	scraperService.Start(context.Background())
 
 	server := api.NewServer(containers, scraperService, api.Config{
