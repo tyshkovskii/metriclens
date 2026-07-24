@@ -20,9 +20,6 @@ COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 
 COPY backend/ ./
-# Replace the placeholder embed directory with the compiled frontend so the
-# Go binary serves the real UI from the same port as the API.
-RUN rm -rf ./internal/web/dist
 COPY --from=frontend /src/frontend/dist ./internal/web/dist
 
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/metriclens ./cmd/server
