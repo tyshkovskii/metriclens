@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -54,7 +55,7 @@ func (s *Store) Record(targetID string, families []model.MetricFamily, scrapedAt
 				series = &storedSeries{
 					targetID: targetID,
 					metric:   sample.Metric,
-					labels:   copyLabels(sample.Labels),
+					labels:   maps.Clone(sample.Labels),
 				}
 				s.series[key] = series
 			}
@@ -116,7 +117,7 @@ func (s *storedSeries) toModel() model.Series {
 	return model.Series{
 		TargetID: s.targetID,
 		Metric:   s.metric,
-		Labels:   copyLabels(s.labels),
+		Labels:   maps.Clone(s.labels),
 		Points:   points,
 	}
 }
@@ -151,16 +152,4 @@ func labelsKey(labels map[string]string) string {
 		builder.WriteByte('\xff')
 	}
 	return builder.String()
-}
-
-func copyLabels(labels map[string]string) map[string]string {
-	if len(labels) == 0 {
-		return map[string]string{}
-	}
-
-	copied := make(map[string]string, len(labels))
-	for name, value := range labels {
-		copied[name] = value
-	}
-	return copied
 }
