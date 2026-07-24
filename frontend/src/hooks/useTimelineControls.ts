@@ -2,7 +2,6 @@ import { useCallback } from "react";
 import { useLiveDomain } from "./useLiveDomain";
 import { clamp, useScrub } from "./useScrub";
 import type { ScrubPosition } from "./useScrub";
-import type { Series } from "../types";
 
 /** One scrub step for the arrow keys and the timeline back/forward buttons. */
 const NUDGE_MS = 5000;
@@ -12,25 +11,6 @@ const NUDGE_MS = 5000;
  * immediately go stale.
  */
 const LIVE_SNAP_MS = 2500;
-
-export type TimelineControls = {
-  /** True while paused on a past timestamp. */
-  scrubbing: boolean;
-  loading: boolean;
-  /** Selected timestamp while scrubbing; null when live. */
-  t: number | null;
-  /** Scrubber track domain: a frozen span while scrubbing, the live window otherwise. */
-  domain: [number, number];
-  /** Domain charts render against. */
-  chartDomain: [number, number];
-  /** All-metric series cache for the current scrub session; null until loaded. */
-  series: Record<string, Series[]> | null;
-  /** Jump to an absolute timestamp, snapping back to live near the right edge. */
-  scrubTo: (t: number) => void;
-  /** Step the selection by one NUDGE_MS in `direction` (-1 = past, 1 = future). */
-  nudge: (direction: number) => void;
-  goLive: () => void;
-};
 
 /**
  * Timeline interaction policy for one target. Composes the live window
@@ -45,7 +25,7 @@ export function useTimelineControls(
   onResume: () => void,
   position: ScrubPosition | null,
   setPosition: React.Dispatch<React.SetStateAction<ScrubPosition | null>>,
-): TimelineControls {
+) {
   const liveDomain = useLiveDomain(retentionMs);
   const scrub = useScrub(targetId, metricNames, onResume, position, setPosition);
 
