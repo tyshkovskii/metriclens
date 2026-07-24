@@ -1,6 +1,6 @@
 module metriclens/backend
 
-go 1.26.4
+go 1.26.5
 
 require (
 	github.com/moby/moby/api v1.55.0
