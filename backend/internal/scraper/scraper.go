@@ -42,6 +42,11 @@ type SeriesStore interface {
 	Series(targetID, metric string, labels map[string]string) []model.Series
 }
 
+type stableSeriesStore interface {
+	RecordWithIdentity(historyID, targetID string, families []model.MetricFamily, scrapedAt time.Time)
+	SeriesFor(historyID, targetID, metric string, labels map[string]string) []model.Series
+}
+
 type Scraper struct {
 	containers ContainerLister
 	prober     TargetProber
@@ -50,10 +55,11 @@ type Scraper struct {
 	interval   time.Duration
 	now        func() time.Time
 
-	mu        sync.RWMutex
-	targets   map[string]model.Target
-	families  map[string][]model.MetricFamily
-	lastError error
+	mu         sync.RWMutex
+	targets    map[string]model.Target
+	families   map[string][]model.MetricFamily
+	historyIDs map[string]string
+	lastError  error
 }
 
 func New(containers ContainerLister, prober TargetProber, client HTTPClient, series SeriesStore, interval time.Duration) *Scraper {
@@ -72,6 +78,7 @@ func New(containers ContainerLister, prober TargetProber, client HTTPClient, ser
 		now:        time.Now,
 		targets:    map[string]model.Target{},
 		families:   map[string][]model.MetricFamily{},
+		historyIDs: map[string]string{},
 	}
 }
 
@@ -107,8 +114,13 @@ func (s *Scraper) RunOnce(ctx context.Context) error {
 	probedTargets := s.prober.Probe(ctx, containers)
 	nextTargets := make(map[string]model.Target, len(probedTargets))
 	nextFamilies := map[string][]model.MetricFamily{}
+	nextHistoryIDs := make(map[string]string, len(probedTargets))
 
 	for _, target := range probedTargets {
+		if target.HistoryID == "" {
+			target.HistoryID = target.ID
+		}
+		nextHistoryIDs[target.ID] = target.HistoryID
 		if target.Status == model.TargetStatusUp && target.URL != "" {
 			scrapedTarget, families, ok := s.scrapeTarget(ctx, target)
 			target = scrapedTarget
@@ -136,6 +148,7 @@ func (s *Scraper) RunOnce(ctx context.Context) error {
 		}
 	}
 	s.targets = nextTargets
+	s.historyIDs = nextHistoryIDs
 	s.lastError = nil
 	s.mu.Unlock()
 
@@ -182,6 +195,15 @@ func (s *Scraper) TargetSeries(targetID, metric string, labels map[string]string
 	if s.series == nil {
 		return []model.Series{}
 	}
+	s.mu.RLock()
+	historyID := s.historyIDs[targetID]
+	s.mu.RUnlock()
+	if historyID == "" {
+		historyID = targetID
+	}
+	if stable, ok := s.series.(stableSeriesStore); ok {
+		return stable.SeriesFor(historyID, targetID, metric, labels)
+	}
 	return s.series.Series(targetID, metric, labels)
 }
 
@@ -214,7 +236,11 @@ func (s *Scraper) scrapeTarget(ctx context.Context, target model.Target) (model.
 	}
 
 	if s.series != nil {
-		s.series.Record(target.ID, families, scrapedAt)
+		if stable, ok := s.series.(stableSeriesStore); ok {
+			stable.RecordWithIdentity(target.HistoryID, target.ID, families, scrapedAt)
+		} else {
+			s.series.Record(target.ID, families, scrapedAt)
+		}
 	}
 
 	target.Status = model.TargetStatusUp

@@ -16,6 +16,7 @@ import (
 const (
 	composeProjectLabel = "com.docker.compose.project"
 	composeServiceLabel = "com.docker.compose.service"
+	composeNumberLabel  = "com.docker.compose.container-number"
 	excludeLabel        = "metriclens.exclude"
 )
 
@@ -46,14 +47,38 @@ func (d *DockerDiscovery) ListContainers(ctx context.Context) ([]model.Discovere
 		return nil, err
 	}
 
+	composeProject := d.selfComposeProject(result.Items)
 	discovered := make([]model.DiscoveredContainer, 0, len(result.Items))
 	for _, c := range result.Items {
-		if d.excluded(c) {
+		if d.excluded(c) || (composeProject != "" && c.Labels[composeProjectLabel] != composeProject) {
 			continue
 		}
 		discovered = append(discovered, FromDockerContainer(c))
 	}
 	return discovered, nil
+}
+
+// selfComposeProject identifies the Compose project that owns MetricLens when
+// the process itself is running in a Compose container. If the self container
+// cannot be matched (for example when MetricLens runs on the host), discovery
+// remains unscoped.
+func (d *DockerDiscovery) selfComposeProject(containers []container.Summary) string {
+	for _, c := range containers {
+		if !d.isSelf(c) {
+			continue
+		}
+		return strings.TrimSpace(c.Labels[composeProjectLabel])
+	}
+	return ""
+}
+
+func (d *DockerDiscovery) isSelf(c container.Summary) bool {
+	selfID := strings.TrimPrefix(strings.TrimSpace(d.selfID), "/")
+	containerID := strings.TrimPrefix(strings.TrimSpace(c.ID), "/")
+	if selfID == "" || containerID == "" {
+		return false
+	}
+	return strings.HasPrefix(containerID, selfID) || strings.HasPrefix(selfID, containerID)
 }
 
 func (d *DockerDiscovery) excluded(c container.Summary) bool {
@@ -62,7 +87,7 @@ func (d *DockerDiscovery) excluded(c container.Summary) bool {
 	}
 	// Inside a container the hostname defaults to the short container ID,
 	// so a prefix match identifies the container metriclens itself runs in.
-	return d.selfID != "" && strings.HasPrefix(c.ID, d.selfID)
+	return d.isSelf(c)
 }
 
 func FromDockerContainer(c container.Summary) model.DiscoveredContainer {
@@ -73,6 +98,7 @@ func FromDockerContainer(c container.Summary) model.DiscoveredContainer {
 
 	return model.DiscoveredContainer{
 		ID:             c.ID,
+		HistoryID:      historyIdentity(c),
 		Name:           cleanContainerName(c.Names),
 		Image:          c.Image,
 		State:          normalizeState(string(c.State)),
@@ -82,6 +108,35 @@ func FromDockerContainer(c container.Summary) model.DiscoveredContainer {
 		ExposedPorts:   exposedPorts(c.Ports),
 		Labels:         labels,
 	}
+}
+
+// historyIdentity prefers Compose's project/service/replica identity so a
+// recreated container continues the same retained series. Container ID is a
+// safe fallback whenever the labels needed to establish that identity are not
+// available.
+func historyIdentity(c container.Summary) string {
+	project := strings.TrimSpace(c.Labels[composeProjectLabel])
+	service := strings.TrimSpace(c.Labels[composeServiceLabel])
+	number := strings.TrimSpace(c.Labels[composeNumberLabel])
+	if project == "" || service == "" || number == "" {
+		return c.ID
+	}
+	return "compose:" + project + "/" + service + "/" + number
+}
+
+// HistoryIdentity exposes the stable identity calculation for packages that
+// receive an already-normalized container.
+func HistoryIdentity(c model.DiscoveredContainer) string {
+	if c.HistoryID != "" {
+		return c.HistoryID
+	}
+	project := strings.TrimSpace(c.ComposeProject)
+	service := strings.TrimSpace(c.ComposeService)
+	number := strings.TrimSpace(c.Labels[composeNumberLabel])
+	if project == "" || service == "" || number == "" {
+		return c.ID
+	}
+	return "compose:" + project + "/" + service + "/" + number
 }
 
 func cleanContainerName(names []string) string {

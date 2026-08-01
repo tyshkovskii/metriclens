@@ -36,6 +36,52 @@ func TestListContainersExcludesSelf(t *testing.T) {
 	}
 }
 
+func TestListContainersScopesToSelfComposeProject(t *testing.T) {
+	d := &DockerDiscovery{
+		client: fakeDockerClient{containers: []container.Summary{
+			{ID: "abcdef123456beefbeefbeef", Labels: map[string]string{
+				composeProjectLabel: "app",
+			}},
+			{ID: "111111111111", Names: []string{"/same-1"}, Labels: map[string]string{
+				composeProjectLabel: "app",
+			}},
+			{ID: "222222222222", Names: []string{"/other-1"}, Labels: map[string]string{
+				composeProjectLabel: "other",
+			}},
+			{ID: "333333333333", Names: []string{"/unscoped"}},
+		}},
+		selfID: "abcdef123456",
+	}
+
+	got, err := d.ListContainers(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "same-1" {
+		t.Fatalf("containers = %#v, want only same-1", got)
+	}
+}
+
+func TestListContainersFallsBackToUnscopedWhenSelfProjectUnavailable(t *testing.T) {
+	d := &DockerDiscovery{
+		client: fakeDockerClient{containers: []container.Summary{
+			{ID: "abcdef123456beefbeefbeef"},
+			{ID: "111111111111", Names: []string{"/other-1"}, Labels: map[string]string{
+				composeProjectLabel: "other",
+			}},
+		}},
+		selfID: "abcdef123456",
+	}
+
+	got, err := d.ListContainers(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "other-1" {
+		t.Fatalf("containers = %#v, want other-1", got)
+	}
+}
+
 func TestListContainersExcludesLabeled(t *testing.T) {
 	d := &DockerDiscovery{
 		client: fakeDockerClient{containers: []container.Summary{
@@ -61,8 +107,9 @@ func TestFromDockerContainerExtractsComposeMetadata(t *testing.T) {
 		Image: "example/api:latest",
 		State: "running",
 		Labels: map[string]string{
-			"com.docker.compose.project": "example",
-			"com.docker.compose.service": "api",
+			"com.docker.compose.project":          "example",
+			"com.docker.compose.service":          "api",
+			"com.docker.compose.container-number": "1",
 		},
 		NetworkSettings: &container.NetworkSettingsSummary{
 			Networks: map[string]*network.EndpointSettings{
@@ -89,6 +136,9 @@ func TestFromDockerContainerExtractsComposeMetadata(t *testing.T) {
 	if got.ComposeService != "api" {
 		t.Fatalf("composeService = %q, want api", got.ComposeService)
 	}
+	if got.HistoryID != "compose:example/api/1" {
+		t.Fatalf("history id = %q, want compose:example/api/1", got.HistoryID)
+	}
 	if got.State != "running" {
 		t.Fatalf("state = %q, want running", got.State)
 	}
@@ -97,6 +147,19 @@ func TestFromDockerContainerExtractsComposeMetadata(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.ExposedPorts, []int{8080, 9090}) {
 		t.Fatalf("exposedPorts = %#v, want [8080 9090]", got.ExposedPorts)
+	}
+}
+
+func TestFromDockerContainerHistoryIdentityFallsBackToContainerID(t *testing.T) {
+	got := FromDockerContainer(container.Summary{
+		ID: "abc123",
+		Labels: map[string]string{
+			composeProjectLabel: "example",
+			composeServiceLabel: "api",
+		},
+	})
+	if got.HistoryID != got.ID {
+		t.Fatalf("history id = %q, want container id %q", got.HistoryID, got.ID)
 	}
 }
 

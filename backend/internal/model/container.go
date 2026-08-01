@@ -9,7 +9,11 @@ const (
 )
 
 type DiscoveredContainer struct {
-	ID             string            `json:"id"`
+	ID string `json:"id"`
+	// HistoryID is an internal identity used to retain metric history across
+	// container recreations. The public container ID remains stable only for
+	// the lifetime of one container and is still returned as ID.
+	HistoryID      string            `json:"-"`
 	Name           string            `json:"name"`
 	Image          string            `json:"image"`
 	State          ContainerState    `json:"state"`

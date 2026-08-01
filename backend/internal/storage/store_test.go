@@ -118,6 +118,25 @@ func TestRecordPreservesCounterReset(t *testing.T) {
 	}
 }
 
+func TestRecordWithIdentityContinuesAcrossPublicTargetIDs(t *testing.T) {
+	store := New(time.Minute)
+	first := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+
+	store.RecordWithIdentity("compose:app/api/1", "old-container", familiesWithSample("up", 1), first)
+	store.RecordWithIdentity("compose:app/api/1", "new-container", familiesWithSample("up", 2), first.Add(5*time.Second))
+
+	series := store.SeriesFor("compose:app/api/1", "new-container", "up", nil)
+	if len(series) != 1 {
+		t.Fatalf("series length = %d, want 1", len(series))
+	}
+	if series[0].TargetID != "new-container" {
+		t.Fatalf("target id = %q, want new-container", series[0].TargetID)
+	}
+	if len(series[0].Points) != 2 || series[0].Points[0].Value != 1 || series[0].Points[1].Value != 2 {
+		t.Fatalf("points = %#v, want retained old and new points", series[0].Points)
+	}
+}
+
 func familiesWithSample(metric string, value float64) []model.MetricFamily {
 	return []model.MetricFamily{
 		{

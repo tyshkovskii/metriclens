@@ -56,6 +56,7 @@ func (p *Prober) Probe(ctx context.Context, containers []model.DiscoveredContain
 func (p *Prober) probeContainer(ctx context.Context, container model.DiscoveredContainer, discoveredAt string) model.Target {
 	target := model.Target{
 		ID:            container.ID,
+		HistoryID:     container.HistoryID,
 		ServiceName:   container.ComposeService,
 		ContainerName: container.Name,
 		Status:        model.TargetStatusDown,

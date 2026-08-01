@@ -8,7 +8,10 @@ const (
 )
 
 type Target struct {
-	ID                 string       `json:"id"`
+	ID string `json:"id"`
+	// HistoryID is internal and deliberately omitted from API responses. It
+	// lets storage retain a service's history when Docker recreates a target.
+	HistoryID          string       `json:"-"`
 	ServiceName        string       `json:"serviceName"`
 	ContainerName      string       `json:"containerName"`
 	URL                string       `json:"url,omitempty"`
