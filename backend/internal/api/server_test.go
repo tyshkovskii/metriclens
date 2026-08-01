@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"metriclens/backend/internal/diagnosis"
 	"metriclens/backend/internal/model"
 )
 
@@ -565,6 +566,49 @@ func TestTargetQualityNotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestReport(t *testing.T) {
+	target := model.Target{ID: "down-1", ServiceName: "api", Status: model.TargetStatusDown, LastError: "connection refused"}
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{targets: []model.Target{target}}, Config{Retention: 5 * time.Minute})
+	server.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC) }
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/report?window=2m&limit=1", nil)
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body diagnosis.Report
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Status != "error" || body.Targets.Down != 1 || len(body.Findings) != 1 {
+		t.Fatalf("report = %#v, want one down-target error", body)
+	}
+	if body.Window.DurationMs != 2*60*1000 {
+		t.Fatalf("duration = %d, want 120000", body.Window.DurationMs)
+	}
+}
+
+func TestReportRejectsWindowBeyondRetention(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{Retention: time.Minute})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/report?window=2m", nil)
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["error"] != "window query parameter must not exceed retention" {
+		t.Fatalf("error = %q, want retention validation", body["error"])
 	}
 }
 

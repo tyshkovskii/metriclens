@@ -9,13 +9,16 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"metriclens/backend/internal/classifier"
+	"metriclens/backend/internal/diagnosis"
 	"metriclens/backend/internal/model"
 	"metriclens/backend/internal/quality"
+	"metriclens/backend/internal/storage"
 	"metriclens/backend/internal/web"
 )
 
@@ -35,6 +38,7 @@ type Server struct {
 	targets    TargetStore
 	configMu   sync.RWMutex
 	config     Config
+	now        func() time.Time
 }
 
 type ContainerLister interface {
@@ -58,7 +62,7 @@ type ScrapeIntervalSetter interface {
 }
 
 func NewServer(containers ContainerLister, targets TargetStore, config Config) *Server {
-	s := &Server{mux: http.NewServeMux(), containers: containers, targets: targets, config: config}
+	s := &Server{mux: http.NewServeMux(), containers: containers, targets: targets, config: config, now: time.Now}
 	s.routes()
 	return s
 }
@@ -77,6 +81,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/version", s.handleVersion)
 	s.mux.HandleFunc("GET /api/config", s.handleConfig)
 	s.mux.HandleFunc("PUT /api/config", s.handleConfigUpdate)
+	s.mux.HandleFunc("GET /api/report", s.handleReport)
 	s.mux.HandleFunc("GET /api/containers", s.handleContainers)
 	s.mux.HandleFunc("GET /api/targets", s.handleTargets)
 	s.mux.HandleFunc("GET /api/targets/{targetId}/metrics", s.handleTargetMetrics)
@@ -148,6 +153,49 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 		"scrapeIntervalMs": config.ScrapeInterval.Milliseconds(),
 		"retentionMs":      config.Retention.Milliseconds(),
 	})
+}
+
+func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
+	s.configMu.RLock()
+	retention := s.config.Retention
+	s.configMu.RUnlock()
+	if retention <= 0 {
+		retention = storage.DefaultRetention
+	}
+
+	window := diagnosis.DefaultWindow
+	if raw := r.URL.Query().Get("window"); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil || parsed <= 0 {
+			writeError(w, http.StatusBadRequest, "window query parameter must be a positive duration")
+			return
+		}
+		window = parsed
+	}
+	if window > retention {
+		writeError(w, http.StatusBadRequest, "window query parameter must not exceed retention")
+		return
+	}
+
+	limit := diagnosis.DefaultLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			writeError(w, http.StatusBadRequest, "limit query parameter must be a positive integer")
+			return
+		}
+		if parsed > diagnosis.MaxLimit {
+			writeError(w, http.StatusBadRequest, "limit query parameter exceeds maximum")
+			return
+		}
+		limit = parsed
+	}
+
+	now := time.Now()
+	if s.now != nil {
+		now = s.now()
+	}
+	writeJSON(w, http.StatusOK, diagnosis.Build(s.targets, now, window, limit))
 }
 
 func (s *Server) handleContainers(w http.ResponseWriter, r *http.Request) {
