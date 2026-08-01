@@ -28,6 +28,39 @@ type batchSeriesStats struct {
 	pointsTruncated bool
 }
 
+type batchSeriesResult struct {
+	Series          []model.Series
+	SeriesCount     int
+	PointCount      int
+	SeriesTruncated bool
+	PointsTruncated bool
+}
+
+func (s *Server) batchSeries(targetID string, metrics []string, bounds seriesBounds, maxPoints int) batchSeriesResult {
+	var series []model.Series
+	if batch, ok := s.targets.(batchTargetStore); ok {
+		series = batch.TargetSeriesBatch(targetID, metrics, bounds.start, bounds.end, bounds.at)
+	} else {
+		series = make([]model.Series, 0)
+		for _, metric := range metrics {
+			for _, item := range s.targets.TargetSeries(targetID, metric, nil) {
+				item.Points = filterSeriesPoints(item.Points, bounds.start, bounds.end, bounds.at)
+				if len(item.Points) > 0 {
+					series = append(series, item)
+				}
+			}
+		}
+	}
+	series, stats := limitBatchSeries(series, maxPoints)
+	return batchSeriesResult{
+		Series:          series,
+		SeriesCount:     stats.seriesCount,
+		PointCount:      stats.pointCount,
+		SeriesTruncated: stats.seriesTruncated,
+		PointsTruncated: stats.pointsTruncated,
+	}
+}
+
 func parseBatchMaxPoints(raw string) (int, error) {
 	if raw == "" {
 		return DefaultBatchMaxPoints, nil

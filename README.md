@@ -35,7 +35,7 @@ services:
   metriclens:
     image: tyshkovskii/metriclens:latest
     ports:
-      - "9999:9999"
+      - "127.0.0.1:9999:9999"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 ```
@@ -46,13 +46,14 @@ Pin a version from the [Docker Hub tags page](https://hub.docker.com/r/tyshkovsk
 
 ## Agent and tool discovery
 
-Three small discovery surfaces make MetricLens easy to use from development agents:
+Four small discovery surfaces make MetricLens easy to use from development agents:
 
 - [`/openapi.json`](http://localhost:9999/openapi.json) is the complete static OpenAPI contract.
 - [`/llms.txt`](http://localhost:9999/llms.txt) is concise agent guidance and workflow context.
-- [`/api/capabilities`](http://localhost:9999/api/capabilities) is machine-readable runtime truth, including the active timing configuration, implemented features, limits, and links to the other two documents.
+- [`/mcp`](http://localhost:9999/mcp) is the Streamable HTTP MCP endpoint with five bounded tools: `observe_stack`, `wait_for_stack`, `start_experiment`, `compare_experiment`, and `get_metric_evidence`.
+- [`/api/capabilities`](http://localhost:9999/api/capabilities) is machine-readable runtime truth, including the active timing configuration, implemented features, limits, and links to the other discovery surfaces.
 
-Use `llms.txt` for instructions and `api/capabilities` for values that may differ between environments.
+Use MCP for the wait → marker → workload → compare → evidence workflow, `llms.txt` for instructions, and `api/capabilities` for values that may differ between environments.
 The `/llm` path is intentionally absent; `/llms.txt` is the standard discovery document.
 
 ## Configuration

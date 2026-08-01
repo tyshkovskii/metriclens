@@ -57,12 +57,14 @@ type capabilitiesLimits struct {
 type capabilitiesLinks struct {
 	OpenAPI string `json:"openapi"`
 	LLMs    string `json:"llms"`
+	MCP     string `json:"mcp"`
 }
 
 var implementedFeatures = []string{
 	"batch-evidence",
 	"diagnostic-filters",
 	"lifecycle-events",
+	"mcp-tools",
 	"named-markers",
 	"readiness",
 	"time-travel",
@@ -95,6 +97,6 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 			BatchPointsTotal:      MaxBatchPointsTotal,
 			BatchDefaultMaxPoints: DefaultBatchMaxPoints,
 		},
-		Links: capabilitiesLinks{OpenAPI: "/openapi.json", LLMs: "/llms.txt"},
+		Links: capabilitiesLinks{OpenAPI: "/openapi.json", LLMs: "/llms.txt", MCP: "/mcp"},
 	})
 }

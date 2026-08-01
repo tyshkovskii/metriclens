@@ -21,6 +21,18 @@
         "responses": {"200": {"description": "Plain-text instructions", "content": {"text/plain": {"schema": {"type": "string"}}}}}
       }
     },
+    "/mcp": {
+      "post": {
+        "operationId": "mcpStreamableHTTP",
+        "summary": "Use the Model Context Protocol tool endpoint",
+        "description": "Streamable HTTP MCP JSON-RPC endpoint. Use an MCP client to initialize and discover exactly five bounded, read-only or marker tools; this document intentionally does not duplicate the MCP tool schemas.",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}},
+        "responses": {
+          "200": {"description": "MCP JSON response or stream", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}, "text/event-stream": {"schema": {"type": "string"}}}},
+          "403": {"description": "Cross-origin or localhost Host protection rejected the request", "content": {"text/plain": {"schema": {"type": "string"}}}}
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "operationId": "getHealth",
@@ -249,7 +261,7 @@
       "ConfigUpdate": {"type": "object", "required": ["scrapeIntervalMs"], "properties": {"scrapeIntervalMs": {"type": "integer", "exclusiveMinimum": 0}}},
       "Capabilities": {"type": "object", "required": ["name", "version", "scrapeIntervalMs", "retentionMs", "features", "limits", "links"], "properties": {"name": {"type": "string", "const": "metriclens"}, "version": {"type": "string"}, "scrapeIntervalMs": {"type": "integer"}, "retentionMs": {"type": "integer"}, "features": {"type": "array", "items": {"type": "string"}}, "limits": {"$ref": "#/components/schemas/CapabilitiesLimits"}, "links": {"$ref": "#/components/schemas/CapabilitiesLinks"}}},
       "CapabilitiesLimits": {"type": "object", "required": ["reportFindings", "markerFieldChars", "readinessTimeoutMs", "batchMetrics", "batchSeriesPerMetric", "batchSeriesTotal", "batchPointsPerSeries", "batchPointsTotal", "batchDefaultMaxPoints"], "properties": {"reportFindings": {"type": "integer", "example": 50}, "markerFieldChars": {"type": "integer", "example": 128}, "readinessTimeoutMs": {"type": "integer", "example": 120000}, "batchMetrics": {"type": "integer", "example": 10}, "batchSeriesPerMetric": {"type": "integer", "example": 20}, "batchSeriesTotal": {"type": "integer", "example": 50}, "batchPointsPerSeries": {"type": "integer", "example": 200}, "batchPointsTotal": {"type": "integer", "example": 500}, "batchDefaultMaxPoints": {"type": "integer", "example": 100}}},
-      "CapabilitiesLinks": {"type": "object", "required": ["openapi", "llms"], "properties": {"openapi": {"type": "string", "const": "/openapi.json"}, "llms": {"type": "string", "const": "/llms.txt"}}},
+      "CapabilitiesLinks": {"type": "object", "required": ["openapi", "llms", "mcp"], "properties": {"openapi": {"type": "string", "const": "/openapi.json"}, "llms": {"type": "string", "const": "/llms.txt"}, "mcp": {"type": "string", "const": "/mcp"}}},
       "Window": {"type": "object", "required": ["start", "end", "durationMs"], "properties": {"start": {"type": "string", "format": "date-time", "description": "RFC3339Nano inclusive start."}, "end": {"type": "string", "format": "date-time", "description": "RFC3339Nano inclusive end."}, "durationMs": {"type": "integer"}}},
       "TargetSummary": {"type": "object", "required": ["total", "up", "down", "healthy"], "properties": {"total": {"type": "integer"}, "up": {"type": "integer"}, "down": {"type": "integer"}, "healthy": {"type": "integer"}}},
       "Evidence": {"type": "object", "required": ["targetId", "metrics", "start", "end"], "properties": {"targetId": {"type": "string"}, "metrics": {"type": "array", "items": {"type": "string"}}, "start": {"type": "string", "format": "date-time", "description": "RFC3339Nano batch start."}, "end": {"type": "string", "format": "date-time", "description": "RFC3339Nano batch end."}}},

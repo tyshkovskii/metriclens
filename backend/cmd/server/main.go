@@ -17,7 +17,7 @@ const (
 	addr              = ":9999"
 	readHeaderTimeout = 5 * time.Second
 	readTimeout       = 10 * time.Second
-	writeTimeout      = 30 * time.Second
+	writeTimeout      = api.HTTPWriteTimeout
 	idleTimeout       = 2 * time.Minute
 )
 

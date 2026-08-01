@@ -498,14 +498,14 @@ func TestTargetSeriesBatchCapsSeriesAndPointsWithHeaders(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(body) != MaxBatchSeriesPerMetric || rec.Header().Get("X-MetricLens-Series-Truncated") != "true" {
-		t.Fatalf("series = %d truncated = %q, want %d and true", len(body), rec.Header().Get("X-MetricLens-Series-Truncated"), MaxBatchSeriesPerMetric)
+	if len(body) != MaxBatchSeriesPerMetric || rec.Header().Get("X-Metriclens-Series-Truncated") != "true" {
+		t.Fatalf("series = %d truncated = %q, want %d and true", len(body), rec.Header().Get("X-Metriclens-Series-Truncated"), MaxBatchSeriesPerMetric)
 	}
-	if rec.Header().Get("X-MetricLens-Series-Count") != fmt.Sprint(MaxBatchSeriesPerMetric) || rec.Header().Get("X-MetricLens-Point-Count") != fmt.Sprint(MaxBatchSeriesPerMetric) {
-		t.Fatalf("counts = series %q points %q, want %d each", rec.Header().Get("X-MetricLens-Series-Count"), rec.Header().Get("X-MetricLens-Point-Count"), MaxBatchSeriesPerMetric)
+	if rec.Header().Get("X-Metriclens-Series-Count") != fmt.Sprint(MaxBatchSeriesPerMetric) || rec.Header().Get("X-Metriclens-Point-Count") != fmt.Sprint(MaxBatchSeriesPerMetric) {
+		t.Fatalf("counts = series %q points %q, want %d each", rec.Header().Get("X-Metriclens-Series-Count"), rec.Header().Get("X-Metriclens-Point-Count"), MaxBatchSeriesPerMetric)
 	}
-	if rec.Header().Get("X-MetricLens-Points-Truncated") != "false" {
-		t.Fatalf("points truncated = %q, want false", rec.Header().Get("X-MetricLens-Points-Truncated"))
+	if rec.Header().Get("X-Metriclens-Points-Truncated") != "false" {
+		t.Fatalf("points truncated = %q, want false", rec.Header().Get("X-Metriclens-Points-Truncated"))
 	}
 }
 
@@ -590,7 +590,7 @@ func TestTargetSeriesBatchNativeAndFallbackHaveIdenticalLimits(t *testing.T) {
 	if nativeResponse.Body.String() != fallbackResponse.Body.String() {
 		t.Fatalf("native body = %s, fallback body = %s, want parity", nativeResponse.Body.String(), fallbackResponse.Body.String())
 	}
-	for _, header := range []string{"X-MetricLens-Series-Count", "X-MetricLens-Point-Count", "X-MetricLens-Series-Truncated", "X-MetricLens-Points-Truncated"} {
+	for _, header := range []string{"X-Metriclens-Series-Count", "X-Metriclens-Point-Count", "X-Metriclens-Series-Truncated", "X-Metriclens-Points-Truncated"} {
 		if nativeResponse.Header().Get(header) != fallbackResponse.Header().Get(header) {
 			t.Fatalf("header %s = %q and %q, want parity", header, nativeResponse.Header().Get(header), fallbackResponse.Header().Get(header))
 		}

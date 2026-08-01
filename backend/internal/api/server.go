@@ -18,7 +18,6 @@ import (
 	"metriclens/backend/internal/diagnosis"
 	"metriclens/backend/internal/model"
 	"metriclens/backend/internal/quality"
-	"metriclens/backend/internal/storage"
 	"metriclens/backend/internal/web"
 )
 
@@ -40,6 +39,7 @@ type Server struct {
 	config     Config
 	now        func() time.Time
 	markers    *markerStore
+	mcpHandler http.Handler
 }
 
 type ContainerLister interface {
@@ -64,6 +64,7 @@ type ScrapeIntervalSetter interface {
 
 func NewServer(containers ContainerLister, targets TargetStore, config Config) *Server {
 	s := &Server{mux: http.NewServeMux(), containers: containers, targets: targets, config: config, now: time.Now, markers: newMarkerStore()}
+	s.mcpHandler = newMCPHandler(s)
 	s.routes()
 	return s
 }
@@ -80,6 +81,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /openapi.json", s.handleOpenAPI)
 	s.mux.HandleFunc("GET /llms.txt", s.handleLLMs)
+	s.mux.Handle("GET /mcp", s.mcpHandler)
+	s.mux.Handle("POST /mcp", s.mcpHandler)
+	s.mux.Handle("DELETE /mcp", s.mcpHandler)
 	s.mux.HandleFunc("GET /api/health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/version", s.handleVersion)
 	s.mux.HandleFunc("GET /api/config", s.handleConfig)
@@ -164,54 +168,13 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
-	options, err := parseReportOptions(r.URL.Query())
+	request, err := s.parseReportRequest(r.URL.Query())
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.configMu.RLock()
-	retention := s.config.Retention
-	s.configMu.RUnlock()
-	if retention <= 0 {
-		retention = storage.DefaultRetention
-	}
 
-	window := diagnosis.DefaultWindow
-	if window > retention {
-		window = retention
-	}
-	if raw := r.URL.Query().Get("window"); raw != "" {
-		parsed, err := time.ParseDuration(raw)
-		if err != nil || parsed <= 0 {
-			writeError(w, http.StatusBadRequest, "window query parameter must be a positive duration")
-			return
-		}
-		window = parsed
-	}
-	if window > retention {
-		writeError(w, http.StatusBadRequest, "window query parameter must not exceed retention")
-		return
-	}
-
-	limit := diagnosis.DefaultLimit
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil || parsed <= 0 {
-			writeError(w, http.StatusBadRequest, "limit query parameter must be a positive integer")
-			return
-		}
-		if parsed > diagnosis.MaxLimit {
-			writeError(w, http.StatusBadRequest, "limit query parameter exceeds maximum")
-			return
-		}
-		limit = parsed
-	}
-
-	now := time.Now()
-	if s.now != nil {
-		now = s.now()
-	}
-	writeJSON(w, http.StatusOK, diagnosis.BuildWithOptions(s.targets, now, window, limit, options))
+	writeJSON(w, http.StatusOK, diagnosis.BuildWithOptions(s.targets, s.currentTime(), request.Window, request.Limit, request.Options))
 }
 
 func (s *Server) handleContainers(w http.ResponseWriter, r *http.Request) {
@@ -284,27 +247,12 @@ func (s *Server) handleTargetSeriesBatch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	targetID := r.PathValue("targetId")
-	var series []model.Series
-	if batch, ok := s.targets.(batchTargetStore); ok {
-		series = batch.TargetSeriesBatch(targetID, metrics, bounds.start, bounds.end, bounds.at)
-	} else {
-		series = make([]model.Series, 0)
-		for _, metric := range metrics {
-			for _, item := range s.targets.TargetSeries(targetID, metric, nil) {
-				item.Points = filterSeriesPoints(item.Points, bounds.start, bounds.end, bounds.at)
-				if len(item.Points) > 0 {
-					series = append(series, item)
-				}
-			}
-		}
-	}
-	series, stats := limitBatchSeries(series, maxPoints)
-	w.Header().Set("X-MetricLens-Series-Count", strconv.Itoa(stats.seriesCount))
-	w.Header().Set("X-MetricLens-Point-Count", strconv.Itoa(stats.pointCount))
-	w.Header().Set("X-MetricLens-Series-Truncated", strconv.FormatBool(stats.seriesTruncated))
-	w.Header().Set("X-MetricLens-Points-Truncated", strconv.FormatBool(stats.pointsTruncated))
-	writeJSON(w, http.StatusOK, series)
+	result := s.batchSeries(r.PathValue("targetId"), metrics, bounds, maxPoints)
+	w.Header().Set("X-Metriclens-Series-Count", strconv.Itoa(result.SeriesCount))
+	w.Header().Set("X-Metriclens-Point-Count", strconv.Itoa(result.PointCount))
+	w.Header().Set("X-Metriclens-Series-Truncated", strconv.FormatBool(result.SeriesTruncated))
+	w.Header().Set("X-Metriclens-Points-Truncated", strconv.FormatBool(result.PointsTruncated))
+	writeJSON(w, http.StatusOK, result.Series)
 }
 
 func parseMetricNames(values url.Values) ([]string, error) {
@@ -342,7 +290,10 @@ type seriesBounds struct {
 }
 
 func parseSeriesBounds(r *http.Request) (seriesBounds, error) {
-	query := r.URL.Query()
+	return parseSeriesBoundsValues(r.URL.Query())
+}
+
+func parseSeriesBoundsValues(query url.Values) (seriesBounds, error) {
 	start, startSet, err := parseOptionalTime(query.Get("start"), "start")
 	if err != nil {
 		return seriesBounds{}, err

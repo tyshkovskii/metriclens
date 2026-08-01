@@ -34,7 +34,7 @@ func TestOpenAPIAndLLMsDiscoveryDocuments(t *testing.T) {
 		t.Fatalf("openapi = %q, want 3.1.x", document.OpenAPI)
 	}
 	expectedPaths := []string{
-		"/openapi.json", "/llms.txt", "/api/health", "/api/version", "/api/config", "/api/capabilities",
+		"/openapi.json", "/llms.txt", "/mcp", "/api/health", "/api/version", "/api/config", "/api/capabilities",
 		"/api/report", "/api/readiness", "/api/markers", "/api/compare", "/api/containers", "/api/targets",
 		"/api/targets/{targetId}/metrics", "/api/targets/{targetId}/series", "/api/targets/{targetId}/series/batch",
 		"/api/targets/{targetId}/panels", "/api/targets/{targetId}/quality",
@@ -105,7 +105,7 @@ func TestOpenAPIAndLLMsDiscoveryDocuments(t *testing.T) {
 	if len(llms) >= 2*1024 || !strings.HasPrefix(llms, "# MetricLens") {
 		t.Fatalf("llms length=%d/header=%q, want concise llms.txt", len(llms), llms[:minStringLen(len(llms), 32)])
 	}
-	for _, phrase := range []string{"/api/readiness", "named marker", "/api/compare", "evidence", "does not start Docker", "logs or traces", "retention"} {
+	for _, phrase := range []string{"/api/readiness", "/mcp", "observe_stack", "named marker", "/api/compare", "evidence", "does not start Docker", "logs or traces", "retention"} {
 		if !strings.Contains(strings.ToLower(llms), strings.ToLower(phrase)) {
 			t.Errorf("llms.txt missing %q", phrase)
 		}
@@ -135,10 +135,19 @@ func TestCapabilitiesAreDeterministicAndUseSharedLimits(t *testing.T) {
 	if !sort.StringsAreSorted(body.Features) || len(body.Features) == 0 {
 		t.Fatalf("features = %#v, want sorted implemented features", body.Features)
 	}
+	hasMCPTools := false
+	for _, feature := range body.Features {
+		if feature == "mcp-tools" {
+			hasMCPTools = true
+		}
+	}
+	if !hasMCPTools {
+		t.Fatalf("features = %#v, want mcp-tools discovery feature", body.Features)
+	}
 	if body.Limits.ReportFindings != diagnosis.MaxLimit || body.Limits.MarkerFieldChars != MaxMarkerFieldRunes || body.Limits.ReadinessTimeoutMs != MaxReadinessTimeout.Milliseconds() || body.Limits.BatchMetrics != MaxBatchMetrics || body.Limits.BatchSeriesPerMetric != MaxBatchSeriesPerMetric || body.Limits.BatchSeriesTotal != MaxBatchSeriesTotal || body.Limits.BatchPointsPerSeries != MaxBatchPointsPerSeries || body.Limits.BatchPointsTotal != MaxBatchPointsTotal || body.Limits.BatchDefaultMaxPoints != DefaultBatchMaxPoints {
 		t.Fatalf("capability limits = %#v, want shared constants", body.Limits)
 	}
-	if body.Links.OpenAPI != "/openapi.json" || body.Links.LLMs != "/llms.txt" {
+	if body.Links.OpenAPI != "/openapi.json" || body.Links.LLMs != "/llms.txt" || body.Links.MCP != "/mcp" {
 		t.Fatalf("links = %#v, want discovery URLs", body.Links)
 	}
 }

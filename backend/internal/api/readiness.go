@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"sort"
@@ -14,7 +15,10 @@ const (
 	// DefaultReadinessTimeout is used when readiness callers omit timeout.
 	DefaultReadinessTimeout = time.Second
 	// MaxReadinessTimeout bounds a readiness wait even for untrusted callers.
-	MaxReadinessTimeout   = 2 * time.Minute
+	MaxReadinessTimeout = 2 * time.Minute
+	// HTTPWriteTimeout leaves enough time for the longest readiness request to
+	// complete before the production HTTP server writes its response.
+	HTTPWriteTimeout      = MaxReadinessTimeout + 5*time.Second
 	readinessPollInterval = 10 * time.Millisecond
 )
 
@@ -44,6 +48,19 @@ func (s *Server) handleReadiness(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	result, err := s.waitForReadiness(r.Context(), services, timeout)
+	if err != nil {
+		writeError(w, http.StatusRequestTimeout, "readiness request canceled before services became ready")
+		return
+	}
+	status := http.StatusOK
+	if !result.Ready {
+		status = http.StatusRequestTimeout
+	}
+	writeJSON(w, status, result)
+}
+
+func (s *Server) waitForReadiness(ctx context.Context, services []string, timeout time.Duration) (readinessResponse, error) {
 	started := time.Now()
 	result := readinessResponse{Services: []readinessService{}}
 	for {
@@ -61,28 +78,26 @@ func (s *Server) handleReadiness(w http.ResponseWriter, r *http.Request) {
 		}
 		timer := time.NewTimer(wait)
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			if !timer.Stop() {
 				<-timer.C
 			}
-			result.WaitedMs = time.Since(started).Milliseconds()
-			writeError(w, http.StatusRequestTimeout, "readiness request canceled before services became ready")
-			return
+			return readinessResponse{}, ctx.Err()
 		case <-timer.C:
 		}
 	}
 	result.WaitedMs = time.Since(started).Milliseconds()
-	status := http.StatusOK
-	if !result.Ready {
-		status = http.StatusRequestTimeout
-	}
-	writeJSON(w, status, result)
+	return result, nil
 }
 
 func parseServiceNames(r *http.Request) ([]string, error) {
 	query := r.URL.Query()
 	raw := append([]string(nil), query["service"]...)
 	raw = append(raw, query["services"]...)
+	return parseServiceList(raw)
+}
+
+func parseServiceList(raw []string) ([]string, error) {
 	seen := map[string]struct{}{}
 	services := make([]string, 0, len(raw))
 	for _, value := range raw {
