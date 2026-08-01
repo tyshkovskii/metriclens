@@ -2,7 +2,19 @@
 
 # metriclens [![Docker image](https://img.shields.io/docker/v/tyshkovskii/metriclens?sort=semver&logo=docker&label=docker)](https://hub.docker.com/r/tyshkovskii/metriclens/tags) [![Docker pulls](https://img.shields.io/docker/pulls/tyshkovskii/metriclens?logo=docker)](https://hub.docker.com/r/tyshkovskii/metriclens)
 
-metriclens is a zero-config, drop-in observability layer for Compose-based development environments, automatically discovering Prometheus metrics and surfacing live charts and instrumentation issues without requiring Prometheus or Grafana.
+metriclens is a zero-config observability layer for developers and coding agents
+working with Docker Compose. Add one container: it discovers services and Prometheus
+metrics automatically, then surfaces live charts, instrumentation issues, and change
+comparisons without Prometheus, Grafana, or per-service configuration.
+
+Agents get bounded findings and evidence through [MCP](#agent-and-tool-discovery) or
+the [CLI](#cli-workflow), with built-in discovery and a compact development loop:
+
+```text
+discover → wait → mark → run → compare → evidence
+```
+
+The agent starts Compose and runs the workload; MetricLens observes and explains it.
 
 ## Try it
 
@@ -46,15 +58,22 @@ Pin a version from the [Docker Hub tags page](https://hub.docker.com/r/tyshkovsk
 
 ## Agent and tool discovery
 
-Four small discovery surfaces make MetricLens easy to use from development agents:
+Start with [`/llms.txt`](http://localhost:9999/llms.txt). Prefer
+[`/mcp`](http://localhost:9999/mcp) when available; for direct HTTP, read runtime
+limits from [`/api/capabilities`](http://localhost:9999/api/capabilities), then load
+only the needed operations from [`/openapi.json`](http://localhost:9999/openapi.json).
 
-- [`/openapi.json`](http://localhost:9999/openapi.json) is the complete static OpenAPI contract.
-- [`/llms.txt`](http://localhost:9999/llms.txt) is concise agent guidance and workflow context.
-- [`/mcp`](http://localhost:9999/mcp) is the Streamable HTTP MCP endpoint with five bounded tools: `observe_stack`, `wait_for_stack`, `start_experiment`, `compare_experiment`, and `get_metric_evidence`.
-- [`/api/capabilities`](http://localhost:9999/api/capabilities) is machine-readable runtime truth, including the active timing configuration, implemented features, limits, and links to the other discovery surfaces.
+Use `observe_stack` for a current diagnosis. To evaluate a change:
 
-Use MCP for the wait → marker → workload → compare → evidence workflow, `llms.txt` for instructions, and `api/capabilities` for values that may differ between environments.
-The `/llm` path is intentionally absent; `/llms.txt` is the standard discovery document.
+```text
+wait_for_stack → start_experiment → run workload → compare_experiment → get_metric_evidence
+```
+
+Keep comparisons small with `warning,error`, `changedOnly: true`, and a low limit.
+Request evidence only for significant findings that need detail.
+
+An `omitted` count above zero means the report is incomplete. Markers and metric
+evidence expire with the configured in-memory retention window.
 
 ## CLI workflow
 
