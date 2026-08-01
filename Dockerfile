@@ -23,6 +23,7 @@ COPY backend/ ./
 COPY --from=frontend /src/frontend/dist ./internal/web/dist
 
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/metriclens ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/metriclensctl ./cmd/metriclensctl
 
 # --- Stage 3: certificate bundle for the scratch runtime ---
 FROM alpine:3.24 AS certs
@@ -34,6 +35,7 @@ FROM scratch
 
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build /out/metriclens /usr/local/bin/metriclens
+COPY --from=build /out/metriclensctl /usr/local/bin/metriclensctl
 
 EXPOSE 9999
 

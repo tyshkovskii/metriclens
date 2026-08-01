@@ -56,6 +56,29 @@ Four small discovery surfaces make MetricLens easy to use from development agent
 Use MCP for the wait → marker → workload → compare → evidence workflow, `llms.txt` for instructions, and `api/capabilities` for values that may differ between environments.
 The `/llm` path is intentionally absent; `/llms.txt` is the standard discovery document.
 
+## CLI workflow
+
+The image also includes `metriclensctl`, a compact JSON CLI for agents. It uses `METRICLENS_URL` (or `http://localhost:9999` by default) and keeps normal output on stdout:
+
+```bash
+metriclensctl wait --services api,worker --timeout 60s
+metriclensctl start --name checkout --client-run-id run-42
+./run-integration-test.sh
+metriclensctl compare --from marker-1 --severity warning,error
+metriclensctl evidence --target api-1 --metric http_requests_total --max-points 100
+```
+
+For a reproducible local evaluation, let the CLI run the explicit workload child directly (without a shell):
+
+```bash
+metriclensctl evaluate --services api,worker \
+  --expect scrape_error --expect quality_warning \
+  --severity warning,error --settle 0 --min-f1 1.0 -- \
+  go test ./...
+```
+
+Exit codes are `0` for success, `1` for usage, transport, API, or response errors, and `2` when an evaluation does not meet its workload or signal-F1 threshold. Evaluation reports `estimatedResponseTokens` as a bytes/4 approximation, not tokenizer output. Its precision, recall, and F1 compare unique returned finding signals against the signals supplied with `--expect`; a nonzero omitted-finding count also fails evaluation, so scores are not semantic model-accuracy claims. MetricLens still does not start Docker or run workloads; only the explicit local `evaluate` child command is executed by the CLI.
+
 ## Configuration
 
 Usually none is needed. If metriclens can't find a service's metrics endpoint, point it at the right port with a label:
