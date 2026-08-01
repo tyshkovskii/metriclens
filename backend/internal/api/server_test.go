@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +24,21 @@ type fakeTargetStore struct {
 	series  []model.Series
 	found   bool
 	lastErr error
+}
+
+type fakeBatchTargetStore struct {
+	fakeTargetStore
+	batch      []model.Series
+	gotMetrics []string
+	gotStart   *time.Time
+	gotEnd     *time.Time
+	gotAt      *time.Time
+}
+
+type fakeIntervalTargetStore struct {
+	fakeTargetStore
+	interval time.Duration
+	err      error
 }
 
 func (f fakeContainerLister) ListContainers(context.Context) ([]model.DiscoveredContainer, error) {
@@ -43,6 +59,22 @@ func (f fakeTargetStore) TargetSeries(targetID, metric string, labels map[string
 
 func (f fakeTargetStore) LastError() error {
 	return f.lastErr
+}
+
+func (f *fakeBatchTargetStore) TargetSeriesBatch(_ string, metrics []string, start, end, at *time.Time) []model.Series {
+	f.gotMetrics = append([]string(nil), metrics...)
+	f.gotStart = start
+	f.gotEnd = end
+	f.gotAt = at
+	return f.batch
+}
+
+func (f *fakeIntervalTargetStore) SetInterval(interval time.Duration) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.interval = interval
+	return nil
 }
 
 func TestHealth(t *testing.T) {
@@ -111,6 +143,41 @@ func TestConfig(t *testing.T) {
 	}
 	if body["retentionMs"] != 15*60*1000 {
 		t.Fatalf("retentionMs = %d, want %d", body["retentionMs"], 15*60*1000)
+	}
+}
+
+func TestConfigUpdate(t *testing.T) {
+	store := &fakeIntervalTargetStore{}
+	server := NewServer(fakeContainerLister{}, store, Config{
+		ScrapeInterval: 5 * time.Second,
+		Retention:      15 * time.Minute,
+	})
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		http.MethodPut,
+		"/api/config",
+		strings.NewReader(`{"scrapeIntervalMs":10000}`),
+	)
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if store.interval != 10*time.Second {
+		t.Fatalf("interval = %s, want 10s", store.interval)
+	}
+
+	get := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/config", nil)
+	getRec := httptest.NewRecorder()
+	server.ServeHTTP(getRec, get)
+	var body map[string]int64
+	if err := json.NewDecoder(getRec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["scrapeIntervalMs"] != 10_000 {
+		t.Fatalf("scrapeIntervalMs = %d, want 10000", body["scrapeIntervalMs"])
 	}
 }
 
@@ -318,6 +385,69 @@ func TestTargetSeriesRequiresMetric(t *testing.T) {
 func TestTargetSeriesRejectsBadLabels(t *testing.T) {
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/abc123/series?metric=up&labels=nope", nil)
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestTargetSeriesBatch(t *testing.T) {
+	point := model.SeriesPoint{TS: "2026-06-06T12:00:00Z", Value: 2}
+	store := &fakeBatchTargetStore{
+		fakeTargetStore: fakeTargetStore{},
+		batch:           []model.Series{{TargetID: "abc123", Metric: "a", Labels: map[string]string{}, Points: []model.SeriesPoint{point}}},
+	}
+	server := NewServer(fakeContainerLister{}, store, Config{})
+	start := "2026-06-06T11:00:00Z"
+	end := "2026-06-06T13:00:00Z"
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/abc123/series/batch?metrics=b,a&metrics=a&start="+start+"&end="+end, nil)
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if len(store.gotMetrics) != 2 || store.gotMetrics[0] != "a" || store.gotMetrics[1] != "b" {
+		t.Fatalf("metrics = %#v, want sorted unique metrics", store.gotMetrics)
+	}
+	if store.gotStart == nil || store.gotEnd == nil || store.gotAt != nil {
+		t.Fatalf("bounds = start %v end %v at %v, want start/end only", store.gotStart, store.gotEnd, store.gotAt)
+	}
+	var body []model.Series
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body) != 1 || body[0].Metric != "a" {
+		t.Fatalf("body = %#v, want batch result", body)
+	}
+}
+
+func TestTargetSeriesBatchAtAndRangeAreContradictory(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, &fakeBatchTargetStore{}, Config{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/abc123/series/batch?metrics=up&at=2026-06-06T12:00:00Z&start=2026-06-06T11:00:00Z", nil)
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["error"] != "at cannot be combined with start or end" {
+		t.Fatalf("error = %q, want contradiction message", body["error"])
+	}
+}
+
+func TestTargetSeriesBatchRejectsInvalidBounds(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, &fakeBatchTargetStore{}, Config{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/abc123/series/batch?metrics=up&start=nope", nil)
 	rec := httptest.NewRecorder()
 
 	server.ServeHTTP(rec, req)

@@ -3,8 +3,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"metriclens/backend/internal/classifier"
@@ -27,6 +33,7 @@ type Server struct {
 	mux        *http.ServeMux
 	containers ContainerLister
 	targets    TargetStore
+	configMu   sync.RWMutex
 	config     Config
 }
 
@@ -42,6 +49,12 @@ type TargetStore interface {
 	// matches only the series whose label set is exactly equal.
 	TargetSeries(targetID, metric string, labels map[string]string) []model.Series
 	LastError() error
+}
+
+// ScrapeIntervalSetter is implemented by the background scraper so the UI can
+// change its cadence without restarting the process.
+type ScrapeIntervalSetter interface {
+	SetInterval(time.Duration) error
 }
 
 func NewServer(containers ContainerLister, targets TargetStore, config Config) *Server {
@@ -63,10 +76,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/version", s.handleVersion)
 	s.mux.HandleFunc("GET /api/config", s.handleConfig)
+	s.mux.HandleFunc("PUT /api/config", s.handleConfigUpdate)
 	s.mux.HandleFunc("GET /api/containers", s.handleContainers)
 	s.mux.HandleFunc("GET /api/targets", s.handleTargets)
 	s.mux.HandleFunc("GET /api/targets/{targetId}/metrics", s.handleTargetMetrics)
 	s.mux.HandleFunc("GET /api/targets/{targetId}/series", s.handleTargetSeries)
+	s.mux.HandleFunc("GET /api/targets/{targetId}/series/batch", s.handleTargetSeriesBatch)
 	s.mux.HandleFunc("GET /api/targets/{targetId}/panels", s.handleTargetPanels)
 	s.mux.HandleFunc("GET /api/targets/{targetId}/quality", s.handleTargetQuality)
 	s.mux.HandleFunc("GET /api", s.handleAPINotFound)
@@ -89,9 +104,49 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	s.configMu.RLock()
+	config := s.config
+	s.configMu.RUnlock()
+
 	writeJSON(w, http.StatusOK, map[string]int64{
-		"scrapeIntervalMs": s.config.ScrapeInterval.Milliseconds(),
-		"retentionMs":      s.config.Retention.Milliseconds(),
+		"scrapeIntervalMs": config.ScrapeInterval.Milliseconds(),
+		"retentionMs":      config.Retention.Milliseconds(),
+	})
+}
+
+func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
+	setter, ok := s.targets.(ScrapeIntervalSetter)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "scrape interval cannot be changed at runtime")
+		return
+	}
+
+	var request struct {
+		ScrapeIntervalMs int64 `json:"scrapeIntervalMs"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "scrapeIntervalMs must be a positive integer")
+		return
+	}
+	maxIntervalMs := int64(^uint64(0)>>1) / int64(time.Millisecond)
+	if request.ScrapeIntervalMs <= 0 || request.ScrapeIntervalMs > maxIntervalMs {
+		writeError(w, http.StatusBadRequest, "scrapeIntervalMs must be a positive integer")
+		return
+	}
+
+	interval := time.Duration(request.ScrapeIntervalMs) * time.Millisecond
+	if err := setter.SetInterval(interval); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.configMu.Lock()
+	s.config.ScrapeInterval = interval
+	config := s.config
+	s.configMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]int64{
+		"scrapeIntervalMs": config.ScrapeInterval.Milliseconds(),
+		"retentionMs":      config.Retention.Milliseconds(),
 	})
 }
 
@@ -142,6 +197,178 @@ func (s *Server) handleTargetSeries(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, s.targets.TargetSeries(r.PathValue("targetId"), metric, labels))
+}
+
+type batchTargetStore interface {
+	TargetSeriesBatch(targetID string, metrics []string, start, end, at *time.Time) []model.Series
+}
+
+func (s *Server) handleTargetSeriesBatch(w http.ResponseWriter, r *http.Request) {
+	metrics, err := parseMetricNames(r.URL.Query())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	bounds, err := parseSeriesBounds(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	targetID := r.PathValue("targetId")
+	if batch, ok := s.targets.(batchTargetStore); ok {
+		writeJSON(w, http.StatusOK, batch.TargetSeriesBatch(targetID, metrics, bounds.start, bounds.end, bounds.at))
+		return
+	}
+
+	series := make([]model.Series, 0)
+	for _, metric := range metrics {
+		for _, item := range s.targets.TargetSeries(targetID, metric, nil) {
+			item.Points = filterSeriesPoints(item.Points, bounds.start, bounds.end, bounds.at)
+			if len(item.Points) > 0 {
+				series = append(series, item)
+			}
+		}
+	}
+	sort.Slice(series, func(i, j int) bool {
+		if series[i].Metric != series[j].Metric {
+			return series[i].Metric < series[j].Metric
+		}
+		return labelsKey(series[i].Labels) < labelsKey(series[j].Labels)
+	})
+	writeJSON(w, http.StatusOK, series)
+}
+
+func parseMetricNames(values url.Values) ([]string, error) {
+	raw := append([]string(nil), values["metrics"]...)
+	raw = append(raw, values["metric"]...)
+	seen := map[string]struct{}{}
+	metrics := make([]string, 0, len(raw))
+	for _, value := range raw {
+		for _, metric := range strings.Split(value, ",") {
+			metric = strings.TrimSpace(metric)
+			if metric == "" {
+				return nil, errors.New("metrics query parameter must contain at least one metric name")
+			}
+			if _, ok := seen[metric]; ok {
+				continue
+			}
+			seen[metric] = struct{}{}
+			metrics = append(metrics, metric)
+		}
+	}
+	if len(metrics) == 0 {
+		return nil, errors.New("metrics query parameter is required")
+	}
+	sort.Strings(metrics)
+	return metrics, nil
+}
+
+type seriesBounds struct {
+	start *time.Time
+	end   *time.Time
+	at    *time.Time
+}
+
+func parseSeriesBounds(r *http.Request) (seriesBounds, error) {
+	query := r.URL.Query()
+	start, startSet, err := parseOptionalTime(query.Get("start"), "start")
+	if err != nil {
+		return seriesBounds{}, err
+	}
+	end, endSet, err := parseOptionalTime(query.Get("end"), "end")
+	if err != nil {
+		return seriesBounds{}, err
+	}
+	at, atSet, err := parseOptionalTime(query.Get("at"), "at")
+	if err != nil {
+		return seriesBounds{}, err
+	}
+	if atSet && (startSet || endSet) {
+		return seriesBounds{}, errors.New("at cannot be combined with start or end")
+	}
+	if startSet && endSet && start.After(end) {
+		return seriesBounds{}, errors.New("start must not be after end")
+	}
+	bounds := seriesBounds{}
+	if startSet {
+		bounds.start = &start
+	}
+	if endSet {
+		bounds.end = &end
+	}
+	if atSet {
+		bounds.at = &at
+	}
+	return bounds, nil
+}
+
+func parseOptionalTime(value, name string) (time.Time, bool, error) {
+	if value == "" {
+		return time.Time{}, false, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("%s query parameter must be RFC3339", name)
+	}
+	parsed = parsed.UTC()
+	return parsed, true, nil
+}
+
+func filterSeriesPoints(points []model.SeriesPoint, start, end, at *time.Time) []model.SeriesPoint {
+	if at != nil {
+		var selected *model.SeriesPoint
+		var selectedTime time.Time
+		for i := range points {
+			pointTime, err := time.Parse(time.RFC3339Nano, points[i].TS)
+			if err != nil || pointTime.After(*at) {
+				continue
+			}
+			if selected == nil || pointTime.After(selectedTime) {
+				point := points[i]
+				selected = &point
+				selectedTime = pointTime
+			}
+		}
+		if selected == nil {
+			return nil
+		}
+		return []model.SeriesPoint{*selected}
+	}
+	filtered := make([]model.SeriesPoint, 0, len(points))
+	for _, point := range points {
+		pointTime, err := time.Parse(time.RFC3339Nano, point.TS)
+		if err != nil {
+			continue
+		}
+		if start != nil && pointTime.Before(*start) {
+			continue
+		}
+		if end != nil && pointTime.After(*end) {
+			continue
+		}
+		filtered = append(filtered, point)
+	}
+	return filtered
+}
+
+func labelsKey(labels map[string]string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(labels))
+	for name := range labels {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var builder strings.Builder
+	for _, name := range names {
+		builder.WriteString(name)
+		builder.WriteByte('=')
+		builder.WriteString(labels[name])
+		builder.WriteByte('\xff')
+	}
+	return builder.String()
 }
 
 // handleTargetPanels serves classifier-based panel suggestions. The bundled

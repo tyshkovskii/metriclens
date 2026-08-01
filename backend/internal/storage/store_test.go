@@ -137,6 +137,44 @@ func TestRecordWithIdentityContinuesAcrossPublicTargetIDs(t *testing.T) {
 	}
 }
 
+func TestSeriesBatchForFiltersMetricsAndTime(t *testing.T) {
+	store := New(10 * time.Minute)
+	first := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+	store.Record("target-1", []model.MetricFamily{
+		{Name: "a", Samples: []model.MetricSample{{Metric: "a", Labels: map[string]string{}, Value: 1}}},
+		{Name: "b", Samples: []model.MetricSample{{Metric: "b", Labels: map[string]string{}, Value: 2}}},
+	}, first)
+	store.Record("target-1", []model.MetricFamily{
+		{Name: "a", Samples: []model.MetricSample{{Metric: "a", Labels: map[string]string{}, Value: 3}}},
+		{Name: "b", Samples: []model.MetricSample{{Metric: "b", Labels: map[string]string{}, Value: 4}}},
+	}, first.Add(time.Minute))
+
+	start := first.Add(30 * time.Second)
+	series := store.SeriesBatchFor("target-1", "target-1", []string{"b", "a"}, &start, nil, nil)
+	if len(series) != 2 {
+		t.Fatalf("series length = %d, want 2", len(series))
+	}
+	if series[0].Metric != "a" || series[0].Points[0].Value != 3 {
+		t.Fatalf("first series = %#v, want a at value 3", series[0])
+	}
+	if series[1].Metric != "b" || series[1].Points[0].Value != 4 {
+		t.Fatalf("second series = %#v, want b at value 4", series[1])
+	}
+}
+
+func TestSeriesBatchForAtSelectsLastPointAtOrBeforeInstant(t *testing.T) {
+	store := New(10 * time.Minute)
+	first := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+	store.Record("target-1", familiesWithSample("up", 1), first)
+	store.Record("target-1", familiesWithSample("up", 2), first.Add(time.Minute))
+	at := first.Add(30 * time.Second)
+
+	series := store.SeriesBatchFor("target-1", "target-1", []string{"up"}, nil, nil, &at)
+	if len(series) != 1 || len(series[0].Points) != 1 || series[0].Points[0].Value != 1 {
+		t.Fatalf("series = %#v, want one point with value 1", series)
+	}
+}
+
 func familiesWithSample(metric string, value float64) []model.MetricFamily {
 	return []model.MetricFamily{
 		{

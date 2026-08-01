@@ -45,15 +45,17 @@ type SeriesStore interface {
 type stableSeriesStore interface {
 	RecordWithIdentity(historyID, targetID string, families []model.MetricFamily, scrapedAt time.Time)
 	SeriesFor(historyID, targetID, metric string, labels map[string]string) []model.Series
+	SeriesBatchFor(historyID, targetID string, metrics []string, start, end, at *time.Time) []model.Series
 }
 
 type Scraper struct {
-	containers ContainerLister
-	prober     TargetProber
-	client     HTTPClient
-	series     SeriesStore
-	interval   time.Duration
-	now        func() time.Time
+	containers      ContainerLister
+	prober          TargetProber
+	client          HTTPClient
+	series          SeriesStore
+	interval        time.Duration
+	intervalUpdates chan time.Duration
+	now             func() time.Time
 
 	mu         sync.RWMutex
 	targets    map[string]model.Target
@@ -70,15 +72,16 @@ func New(containers ContainerLister, prober TargetProber, client HTTPClient, ser
 		interval = DefaultInterval
 	}
 	return &Scraper{
-		containers: containers,
-		prober:     prober,
-		client:     client,
-		series:     series,
-		interval:   interval,
-		now:        time.Now,
-		targets:    map[string]model.Target{},
-		families:   map[string][]model.MetricFamily{},
-		historyIDs: map[string]string{},
+		containers:      containers,
+		prober:          prober,
+		client:          client,
+		series:          series,
+		interval:        interval,
+		intervalUpdates: make(chan time.Duration, 1),
+		now:             time.Now,
+		targets:         map[string]model.Target{},
+		families:        map[string][]model.MetricFamily{},
+		historyIDs:      map[string]string{},
 	}
 }
 
@@ -88,13 +91,16 @@ func (s *Scraper) Start(ctx context.Context) {
 			log.Printf("initial scrape failed: %v", err)
 		}
 
-		ticker := time.NewTicker(s.interval)
+		ticker := time.NewTicker(s.currentInterval())
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ctx.Done():
 				return
+			case interval := <-s.intervalUpdates:
+				ticker.Stop()
+				ticker = time.NewTicker(interval)
 			case <-ticker.C:
 				if err := s.RunOnce(ctx); err != nil {
 					log.Printf("scrape failed: %v", err)
@@ -102,6 +108,37 @@ func (s *Scraper) Start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// SetInterval changes the cadence used by the background scraper. The next
+// tick uses the new duration; an in-flight scrape is allowed to finish.
+func (s *Scraper) SetInterval(interval time.Duration) error {
+	if interval <= 0 {
+		return fmt.Errorf("scrape interval must be positive")
+	}
+
+	s.mu.Lock()
+	s.interval = interval
+	s.mu.Unlock()
+
+	// Keep only the newest pending update if the API is called repeatedly while
+	// the scraper goroutine is busy with a scrape.
+	select {
+	case s.intervalUpdates <- interval:
+	default:
+		select {
+		case <-s.intervalUpdates:
+		default:
+		}
+		s.intervalUpdates <- interval
+	}
+	return nil
+}
+
+func (s *Scraper) currentInterval() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.interval
 }
 
 func (s *Scraper) RunOnce(ctx context.Context) error {
@@ -205,6 +242,102 @@ func (s *Scraper) TargetSeries(targetID, metric string, labels map[string]string
 		return stable.SeriesFor(historyID, targetID, metric, labels)
 	}
 	return s.series.Series(targetID, metric, labels)
+}
+
+// TargetSeriesBatch returns selected metric history for a bounded time range.
+// A nil at/start/end leaves that bound unset; at takes precedence in storage
+// and returns one last point per matching series.
+func (s *Scraper) TargetSeriesBatch(targetID string, metrics []string, start, end, at *time.Time) []model.Series {
+	if s.series == nil {
+		return []model.Series{}
+	}
+	s.mu.RLock()
+	historyID := s.historyIDs[targetID]
+	s.mu.RUnlock()
+	if historyID == "" {
+		historyID = targetID
+	}
+	if stable, ok := s.series.(stableSeriesStore); ok {
+		return stable.SeriesBatchFor(historyID, targetID, metrics, start, end, at)
+	}
+
+	result := make([]model.Series, 0)
+	for _, metric := range metrics {
+		for _, series := range s.series.Series(targetID, metric, nil) {
+			points := filterSeriesPoints(series.Points, start, end, at)
+			if len(points) == 0 {
+				continue
+			}
+			series.Points = points
+			result = append(result, series)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Metric != result[j].Metric {
+			return result[i].Metric < result[j].Metric
+		}
+		return labelsKey(result[i].Labels) < labelsKey(result[j].Labels)
+	})
+	return result
+}
+
+func filterSeriesPoints(points []model.SeriesPoint, start, end, at *time.Time) []model.SeriesPoint {
+	if at != nil {
+		var selected *model.SeriesPoint
+		for i := range points {
+			pointTime, err := time.Parse(time.RFC3339Nano, points[i].TS)
+			if err != nil || pointTime.After(*at) {
+				continue
+			}
+			point := points[i]
+			if selected == nil {
+				selected = &point
+				continue
+			}
+			selectedTime, err := time.Parse(time.RFC3339Nano, selected.TS)
+			if err != nil || pointTime.After(selectedTime) {
+				selected = &point
+			}
+		}
+		if selected == nil {
+			return nil
+		}
+		return []model.SeriesPoint{*selected}
+	}
+	filtered := make([]model.SeriesPoint, 0, len(points))
+	for _, point := range points {
+		pointTime, err := time.Parse(time.RFC3339Nano, point.TS)
+		if err != nil {
+			continue
+		}
+		if start != nil && pointTime.Before(*start) {
+			continue
+		}
+		if end != nil && pointTime.After(*end) {
+			continue
+		}
+		filtered = append(filtered, point)
+	}
+	return filtered
+}
+
+func labelsKey(labels map[string]string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(labels))
+	for name := range labels {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var builder strings.Builder
+	for _, name := range names {
+		builder.WriteString(name)
+		builder.WriteByte('=')
+		builder.WriteString(labels[name])
+		builder.WriteByte('\xff')
+	}
+	return builder.String()
 }
 
 func (s *Scraper) LastError() error {
