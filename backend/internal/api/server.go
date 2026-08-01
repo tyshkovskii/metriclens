@@ -152,12 +152,12 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	interval := time.Duration(request.ScrapeIntervalMs) * time.Millisecond
+	s.configMu.Lock()
 	if err := setter.SetInterval(interval); err != nil {
+		s.configMu.Unlock()
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
-	s.configMu.Lock()
 	s.config.ScrapeInterval = interval
 	config := s.config
 	s.configMu.Unlock()
