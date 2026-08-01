@@ -612,6 +612,111 @@ func TestReportRejectsWindowBeyondRetention(t *testing.T) {
 	}
 }
 
+func TestMarkersAndCompare(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{Retention: 10 * time.Minute})
+	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+	server.now = func() time.Time { return now }
+
+	first := createMarker(t, server)
+	now = now.Add(time.Minute)
+	second := createMarker(t, server)
+
+	listRequest := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/markers", nil)
+	listResponse := httptest.NewRecorder()
+	server.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want %d", listResponse.Code, http.StatusOK)
+	}
+	var markers []Marker
+	if err := json.NewDecoder(listResponse.Body).Decode(&markers); err != nil {
+		t.Fatalf("decode markers: %v", err)
+	}
+	if len(markers) != 2 || markers[0].ID != first.ID || markers[1].ID != second.ID {
+		t.Fatalf("markers = %#v, want creation order", markers)
+	}
+
+	compareRequest := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/compare?from="+first.ID+"&to="+second.ID+"&limit=1", nil)
+	compareResponse := httptest.NewRecorder()
+	server.ServeHTTP(compareResponse, compareRequest)
+	if compareResponse.Code != http.StatusOK {
+		t.Fatalf("compare status = %d, want %d", compareResponse.Code, http.StatusOK)
+	}
+	var report diagnosis.Report
+	if err := json.NewDecoder(compareResponse.Body).Decode(&report); err != nil {
+		t.Fatalf("decode compare report: %v", err)
+	}
+	if report.Window.Start != first.CreatedAt || report.Window.End != second.CreatedAt {
+		t.Fatalf("window = %#v, want marker timestamps", report.Window)
+	}
+}
+
+func TestMarkersExpireWithRetention(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{Retention: time.Minute})
+	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+	server.now = func() time.Time { return now }
+	marker := createMarker(t, server)
+	now = now.Add(2 * time.Minute)
+
+	listRequest := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/markers", nil)
+	listResponse := httptest.NewRecorder()
+	server.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want %d", listResponse.Code, http.StatusOK)
+	}
+	var markers []Marker
+	if err := json.NewDecoder(listResponse.Body).Decode(&markers); err != nil {
+		t.Fatalf("decode markers: %v", err)
+	}
+	if len(markers) != 0 {
+		t.Fatalf("markers = %#v, want expired marker removed", markers)
+	}
+
+	compareRequest := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/compare?from="+marker.ID, nil)
+	compareResponse := httptest.NewRecorder()
+	server.ServeHTTP(compareResponse, compareRequest)
+	if compareResponse.Code != http.StatusNotFound {
+		t.Fatalf("compare status = %d, want %d", compareResponse.Code, http.StatusNotFound)
+	}
+}
+
+func TestCompareValidatesMarkersAndLimit(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{Retention: time.Hour})
+	now := time.Date(2026, 6, 6, 12, 1, 0, 0, time.UTC)
+	server.now = func() time.Time { return now }
+	later := createMarker(t, server)
+	now = now.Add(-time.Minute)
+	earlier := createMarker(t, server)
+
+	for _, path := range []string{
+		"/api/compare",
+		"/api/compare?from=" + later.ID + "&to=" + earlier.ID,
+		"/api/compare?from=" + earlier.ID + "&limit=999",
+		"/api/compare?from=" + earlier.ID + "&to=missing",
+	} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest && rec.Code != http.StatusNotFound {
+			t.Fatalf("path %q status = %d, want validation error", path, rec.Code)
+		}
+	}
+}
+
+func createMarker(t *testing.T, server *Server) Marker {
+	t.Helper()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/markers", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d", rec.Code, http.StatusCreated)
+	}
+	var marker Marker
+	if err := json.NewDecoder(rec.Body).Decode(&marker); err != nil {
+		t.Fatalf("decode marker: %v", err)
+	}
+	return marker
+}
+
 func TestUnknownAPIPathReturnsJSONNotFound(t *testing.T) {
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/missing", nil)

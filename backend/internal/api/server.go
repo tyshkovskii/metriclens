@@ -39,6 +39,7 @@ type Server struct {
 	configMu   sync.RWMutex
 	config     Config
 	now        func() time.Time
+	markers    *markerStore
 }
 
 type ContainerLister interface {
@@ -62,7 +63,7 @@ type ScrapeIntervalSetter interface {
 }
 
 func NewServer(containers ContainerLister, targets TargetStore, config Config) *Server {
-	s := &Server{mux: http.NewServeMux(), containers: containers, targets: targets, config: config, now: time.Now}
+	s := &Server{mux: http.NewServeMux(), containers: containers, targets: targets, config: config, now: time.Now, markers: newMarkerStore()}
 	s.routes()
 	return s
 }
@@ -82,6 +83,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/config", s.handleConfig)
 	s.mux.HandleFunc("PUT /api/config", s.handleConfigUpdate)
 	s.mux.HandleFunc("GET /api/report", s.handleReport)
+	s.mux.HandleFunc("POST /api/markers", s.handleCreateMarker)
+	s.mux.HandleFunc("GET /api/markers", s.handleListMarkers)
+	s.mux.HandleFunc("GET /api/compare", s.handleCompare)
 	s.mux.HandleFunc("GET /api/containers", s.handleContainers)
 	s.mux.HandleFunc("GET /api/targets", s.handleTargets)
 	s.mux.HandleFunc("GET /api/targets/{targetId}/metrics", s.handleTargetMetrics)
@@ -164,6 +168,9 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	window := diagnosis.DefaultWindow
+	if window > retention {
+		window = retention
+	}
 	if raw := r.URL.Query().Get("window"); raw != "" {
 		parsed, err := time.ParseDuration(raw)
 		if err != nil || parsed <= 0 {
