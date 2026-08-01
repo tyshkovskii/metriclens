@@ -11,9 +11,11 @@ import (
 )
 
 const (
-	defaultReadinessTimeout = time.Second
-	maxReadinessTimeout     = 2 * time.Minute
-	readinessPollInterval   = 10 * time.Millisecond
+	// DefaultReadinessTimeout is used when readiness callers omit timeout.
+	DefaultReadinessTimeout = time.Second
+	// MaxReadinessTimeout bounds a readiness wait even for untrusted callers.
+	MaxReadinessTimeout   = 2 * time.Minute
+	readinessPollInterval = 10 * time.Millisecond
 )
 
 type readinessService struct {
@@ -105,13 +107,13 @@ func parseServiceNames(r *http.Request) ([]string, error) {
 
 func parseReadinessTimeout(raw string) (time.Duration, error) {
 	if raw == "" {
-		return defaultReadinessTimeout, nil
+		return DefaultReadinessTimeout, nil
 	}
 	timeout, err := time.ParseDuration(raw)
 	if err != nil || timeout < 0 {
 		return 0, errors.New("timeout query parameter must be a non-negative duration")
 	}
-	if timeout > maxReadinessTimeout {
+	if timeout > MaxReadinessTimeout {
 		return 0, errors.New("timeout query parameter must not exceed 2m")
 	}
 	return timeout, nil

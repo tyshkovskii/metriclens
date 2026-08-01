@@ -44,6 +44,17 @@ metriclens finds the other services in your Compose project on its own, locates 
 
 Pin a version from the [Docker Hub tags page](https://hub.docker.com/r/tyshkovskii/metriclens/tags) if you want repeatable environments.
 
+## Agent and tool discovery
+
+Three small discovery surfaces make MetricLens easy to use from development agents:
+
+- [`/openapi.json`](http://localhost:9999/openapi.json) is the complete static OpenAPI contract.
+- [`/llms.txt`](http://localhost:9999/llms.txt) is concise agent guidance and workflow context.
+- [`/api/capabilities`](http://localhost:9999/api/capabilities) is machine-readable runtime truth, including the active timing configuration, implemented features, limits, and links to the other two documents.
+
+Use `llms.txt` for instructions and `api/capabilities` for values that may differ between environments.
+The `/llm` path is intentionally absent; `/llms.txt` is the standard discovery document.
+
 ## Configuration
 
 Usually none is needed. If metriclens can't find a service's metrics endpoint, point it at the right port with a label:

@@ -22,7 +22,7 @@ import (
 	"metriclens/backend/internal/web"
 )
 
-const Version = "0.2.0"
+const Version = "0.3.0"
 
 // Config is the effective runtime configuration, exposed to the frontend via
 // /api/config so UI timing (live window, poll cadence, staleness) follows the
@@ -78,10 +78,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) routes() {
+	s.mux.HandleFunc("GET /openapi.json", s.handleOpenAPI)
+	s.mux.HandleFunc("GET /llms.txt", s.handleLLMs)
 	s.mux.HandleFunc("GET /api/health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/version", s.handleVersion)
 	s.mux.HandleFunc("GET /api/config", s.handleConfig)
 	s.mux.HandleFunc("PUT /api/config", s.handleConfigUpdate)
+	s.mux.HandleFunc("GET /api/capabilities", s.handleCapabilities)
 	s.mux.HandleFunc("GET /api/report", s.handleReport)
 	s.mux.HandleFunc("GET /api/readiness", s.handleReadiness)
 	s.mux.HandleFunc("POST /api/markers", s.handleCreateMarker)

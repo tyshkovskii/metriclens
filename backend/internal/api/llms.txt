@@ -1,0 +1,28 @@
+# MetricLens
+
+> MetricLens is a zero-config observability surface for Compose development environments.
+
+MetricLens observes Prometheus metrics in memory and provides compact evidence for development agents.
+
+## Discovery
+
+- [OpenAPI](/openapi.json): complete JSON API contract, schemas, limits, and examples.
+- [Capabilities](/api/capabilities): machine-readable runtime configuration and implemented features.
+- [Report](/api/report): compact findings with stable IDs and optional batch-evidence descriptors.
+- [Readiness](/api/readiness): wait for selected services to finish a successful scrape.
+
+## Recommended agent workflow
+
+1. Wait on `/api/readiness?service=...` before treating the environment as usable.
+2. Create a named marker with `POST /api/markers` immediately before the workload or test.
+3. Run the workload through your normal development tools.
+4. Call `/api/compare?from=...` (or `/api/report`) and filter to significant findings.
+5. Fetch only the `evidence` windows for findings that need investigation through the batch-series endpoint.
+
+## Time travel
+
+Markers and comparisons address retained in-memory history. Batch series accept RFC3339 `start`/`end` bounds, or `at` for the latest sample at or before an instant. History expires according to the configured retention window.
+
+## Guardrails
+
+MetricLens observes; it does not start Docker, replay execution, provide logs or traces, or persist data beyond retention.

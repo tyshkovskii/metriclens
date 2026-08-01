@@ -21,7 +21,8 @@ var (
 	errMaximumLimit  = errors.New("limit query parameter exceeds maximum")
 )
 
-const maxMarkerFieldRunes = 128
+// MaxMarkerFieldRunes bounds optional marker names and client run IDs.
+const MaxMarkerFieldRunes = 128
 
 func (s *Server) handleCreateMarker(w http.ResponseWriter, r *http.Request) {
 	request, err := decodeMarkerRequest(r)
@@ -128,7 +129,7 @@ type markerRequest struct {
 }
 
 func decodeMarkerRequest(r *http.Request) (markerRequest, error) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxMarkerFieldRunes*32+1))
+	body, err := io.ReadAll(io.LimitReader(r.Body, MaxMarkerFieldRunes*32+1))
 	if err != nil {
 		return markerRequest{}, errors.New("marker body could not be read")
 	}
@@ -151,8 +152,8 @@ func decodeMarkerRequest(r *http.Request) (markerRequest, error) {
 }
 
 func validateMarkerField(name, value string) error {
-	if utf8.RuneCountInString(value) > maxMarkerFieldRunes {
-		return fmt.Errorf("%s must be at most %d characters", name, maxMarkerFieldRunes)
+	if utf8.RuneCountInString(value) > MaxMarkerFieldRunes {
+		return fmt.Errorf("%s must be at most %d characters", name, MaxMarkerFieldRunes)
 	}
 	if strings.IndexFunc(value, unicode.IsControl) >= 0 {
 		return fmt.Errorf("%s must not contain control characters", name)

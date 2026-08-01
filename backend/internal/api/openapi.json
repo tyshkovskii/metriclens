@@ -1,0 +1,273 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "MetricLens API",
+    "version": "0.3.0",
+    "description": "Compact observability and retained metric-history APIs for Compose development environments. Timestamps use RFC3339Nano. Metric history is in memory and expires after retention."
+  },
+  "servers": [{"url": "/"}],
+  "paths": {
+    "/openapi.json": {
+      "get": {
+        "operationId": "getOpenAPI",
+        "summary": "Get this OpenAPI document",
+        "responses": {"200": {"description": "OpenAPI 3.1 document", "content": {"application/json": {"schema": {"type": "object"}}}}}
+      }
+    },
+    "/llms.txt": {
+      "get": {
+        "operationId": "getLLMsTxt",
+        "summary": "Get agent-oriented usage guidance",
+        "responses": {"200": {"description": "Plain-text instructions", "content": {"text/plain": {"schema": {"type": "string"}}}}}
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Check that the API is serving",
+        "responses": {"200": {"description": "Healthy", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Health"}}}}}
+      }
+    },
+    "/api/version": {
+      "get": {
+        "operationId": "getVersion",
+        "summary": "Get the API version",
+        "responses": {"200": {"description": "Version", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Version"}}}}}
+      }
+    },
+    "/api/config": {
+      "get": {
+        "operationId": "getConfig",
+        "summary": "Get effective timing configuration",
+        "responses": {"200": {"description": "Timing in milliseconds", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Config"}}}}}
+      },
+      "put": {
+        "operationId": "updateConfig",
+        "summary": "Change the scrape interval",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConfigUpdate"}, "example": {"scrapeIntervalMs": 5000}}}},
+        "responses": {
+          "200": {"description": "Updated timing", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Config"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "501": {"$ref": "#/components/responses/NotImplemented"}
+        }
+      }
+    },
+    "/api/capabilities": {
+      "get": {
+        "operationId": "getCapabilities",
+        "summary": "Get machine-readable runtime capabilities",
+        "responses": {"200": {"description": "Runtime configuration, features, limits, and discovery links", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Capabilities"}}}}}
+      }
+    },
+    "/api/report": {
+      "get": {
+        "operationId": "getReport",
+        "summary": "Build a compact diagnostic report",
+        "description": "window is a Go duration such as 5m and cannot exceed retention. Findings are filtered before limit and omitted counting. changedOnly removes zero-change counter/gauge observations while retaining errors, warnings, and lifecycle findings.",
+        "parameters": [
+          {"name": "window", "in": "query", "required": false, "schema": {"type": "string", "default": "5m", "example": "2m"}, "description": "Positive duration; must not exceed retention."},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10}},
+          {"name": "severity", "in": "query", "required": false, "style": "form", "explode": true, "schema": {"type": "string", "enum": ["info", "warning", "error"]}, "description": "Repeat or comma-separate allowed severities."},
+          {"name": "service", "in": "query", "required": false, "style": "form", "explode": true, "schema": {"type": "string"}, "description": "Repeat or comma-separate service names; scopes the target summary."},
+          {"name": "services", "in": "query", "required": false, "style": "form", "explode": true, "schema": {"type": "string"}, "description": "Alias for service."},
+          {"name": "changedOnly", "in": "query", "required": false, "schema": {"type": "boolean", "default": false}}
+        ],
+        "responses": {
+          "200": {"description": "Diagnostic report", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Report"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"}
+        }
+      }
+    },
+    "/api/readiness": {
+      "get": {
+        "operationId": "getReadiness",
+        "summary": "Wait for selected services to be scraped successfully",
+        "description": "At least one service or services query value is required. A service is ready only when all its targets are up and have a valid LastScrapeAt. The default timeout is 1s; the maximum is 2m.",
+        "parameters": [
+          {"name": "service", "in": "query", "required": false, "style": "form", "explode": true, "schema": {"type": "string"}, "description": "Repeat or comma-separate service names."},
+          {"name": "services", "in": "query", "required": false, "style": "form", "explode": true, "schema": {"type": "string"}, "description": "Alias for service."},
+          {"name": "timeout", "in": "query", "required": false, "schema": {"type": "string", "default": "1s", "example": "10s"}, "description": "Non-negative Go duration, capped at 2m."}
+        ],
+        "responses": {
+          "200": {"description": "All requested services are ready", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Readiness"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "408": {"description": "One or more services did not become ready before timeout", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Readiness"}}}}
+        }
+      }
+    },
+    "/api/markers": {
+      "post": {
+        "operationId": "createMarker",
+        "summary": "Create a named point in retained history",
+        "description": "The body may be omitted. name and clientRunId are optional and each is limited to 128 Unicode characters.",
+        "requestBody": {"required": false, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MarkerRequest"}, "example": {"name": "checkout test", "clientRunId": "run-42"}}}},
+        "responses": {
+          "201": {"description": "Created marker", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Marker"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"}
+        }
+      },
+      "get": {
+        "operationId": "listMarkers",
+        "summary": "List retained markers in creation order",
+        "responses": {"200": {"description": "Markers", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/Marker"}}}}}}
+      }
+    },
+    "/api/compare": {
+      "get": {
+        "operationId": "compareMarkers",
+        "summary": "Compare retained history from a marker to another marker or now",
+        "description": "from must precede to. The report filter and limit parameters match /api/report.",
+        "parameters": [
+          {"name": "from", "in": "query", "required": true, "schema": {"type": "string"}},
+          {"name": "to", "in": "query", "required": false, "schema": {"type": "string"}},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10}},
+          {"name": "severity", "in": "query", "required": false, "style": "form", "explode": true, "schema": {"type": "string", "enum": ["info", "warning", "error"]}},
+          {"name": "service", "in": "query", "required": false, "style": "form", "explode": true, "schema": {"type": "string"}},
+          {"name": "services", "in": "query", "required": false, "style": "form", "explode": true, "schema": {"type": "string"}},
+          {"name": "changedOnly", "in": "query", "required": false, "schema": {"type": "boolean", "default": false}}
+        ],
+        "responses": {
+          "200": {"description": "Comparison report", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Report"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    },
+    "/api/containers": {
+      "get": {
+        "operationId": "listContainers",
+        "summary": "List discovered Docker containers",
+        "responses": {
+          "200": {"description": "Containers", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/Container"}}}}},
+          "500": {"$ref": "#/components/responses/ServerError"}
+        }
+      }
+    },
+    "/api/targets": {
+      "get": {
+        "operationId": "listTargets",
+        "summary": "List currently scraped targets",
+        "responses": {
+          "200": {"description": "Targets", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/Target"}}}}},
+          "500": {"$ref": "#/components/responses/ServerError"}
+        }
+      }
+    },
+    "/api/targets/{targetId}/metrics": {
+      "get": {
+        "operationId": "getTargetMetrics",
+        "summary": "Get the latest metric families for a target",
+        "parameters": [{"$ref": "#/components/parameters/TargetId"}],
+        "responses": {
+          "200": {"description": "Latest metric families", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TargetMetrics"}}}},
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    },
+    "/api/targets/{targetId}/series": {
+      "get": {
+        "operationId": "getTargetSeries",
+        "summary": "Get stored series for one metric",
+        "parameters": [
+          {"$ref": "#/components/parameters/TargetId"},
+          {"name": "metric", "in": "query", "required": true, "schema": {"type": "string"}},
+          {"name": "labels", "in": "query", "required": false, "schema": {"type": "string", "example": "{\"method\":\"GET\"}"}, "description": "JSON object for exact label matching."}
+        ],
+        "responses": {
+          "200": {"description": "Series", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/Series"}}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"}
+        }
+      }
+    },
+    "/api/targets/{targetId}/series/batch": {
+      "get": {
+        "operationId": "getTargetSeriesBatch",
+        "summary": "Get bounded evidence series for selected metrics",
+        "description": "Use metrics or its metric alias as repeated and/or comma-separated names. At most 10 unique metric names are accepted. start/end are inclusive RFC3339 bounds; at is mutually exclusive and selects the latest point at or before the instant. maxPoints defaults to 100 and is capped at 200. Returned series are capped at 20 per metric and 50 total; points at 200 per series and 500 total.",
+        "parameters": [
+          {"$ref": "#/components/parameters/TargetId"},
+          {"name": "metrics", "in": "query", "required": false, "style": "form", "explode": true, "schema": {"type": "string"}, "description": "At least one of metrics or metric is required; repeat or comma-separate names."},
+          {"name": "metric", "in": "query", "required": false, "style": "form", "explode": true, "schema": {"type": "string"}, "description": "Alias for metrics."},
+          {"name": "start", "in": "query", "required": false, "schema": {"type": "string", "format": "date-time"}, "description": "Inclusive RFC3339/RFC3339Nano start."},
+          {"name": "end", "in": "query", "required": false, "schema": {"type": "string", "format": "date-time"}, "description": "Inclusive RFC3339/RFC3339Nano end."},
+          {"name": "at", "in": "query", "required": false, "schema": {"type": "string", "format": "date-time"}, "description": "Latest point at or before this instant; cannot combine with start/end."},
+          {"name": "maxPoints", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 200, "default": 100}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded series array",
+            "headers": {
+              "X-MetricLens-Series-Count": {"schema": {"type": "integer"}, "description": "Number of returned series."},
+              "X-MetricLens-Point-Count": {"schema": {"type": "integer"}, "description": "Number of returned points."},
+              "X-MetricLens-Series-Truncated": {"schema": {"type": "boolean"}, "description": "Whether a series cap removed any series."},
+              "X-MetricLens-Points-Truncated": {"schema": {"type": "boolean"}, "description": "Whether a point cap/downsampling removed any points."}
+            },
+            "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/Series"}}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"}
+        }
+      }
+    },
+    "/api/targets/{targetId}/panels": {
+      "get": {
+        "operationId": "getTargetPanels",
+        "summary": "Get classifier-selected chart panels",
+        "parameters": [{"$ref": "#/components/parameters/TargetId"}],
+        "responses": {
+          "200": {"description": "Suggested panels", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/Panel"}}}}},
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    },
+    "/api/targets/{targetId}/quality": {
+      "get": {
+        "operationId": "getTargetQuality",
+        "summary": "Analyze metric instrumentation quality",
+        "parameters": [{"$ref": "#/components/parameters/TargetId"}],
+        "responses": {
+          "200": {"description": "Quality findings", "content": {"application/json": {"schema": {"type": "array", "items": {"$ref": "#/components/schemas/QualityIssue"}}}}},
+          "404": {"$ref": "#/components/responses/NotFound"}
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "TargetId": {"name": "targetId", "in": "path", "required": true, "schema": {"type": "string"}}
+    },
+    "responses": {
+      "BadRequest": {"description": "Invalid request", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "NotFound": {"description": "Resource not found or expired", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "NotImplemented": {"description": "Operation is not available", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "ServerError": {"description": "Server or discovery failure", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+    },
+    "schemas": {
+      "Error": {"type": "object", "required": ["error"], "properties": {"error": {"type": "string"}}, "additionalProperties": false},
+      "Health": {"type": "object", "required": ["status"], "properties": {"status": {"type": "string", "const": "ok"}}},
+      "Version": {"type": "object", "required": ["name", "version"], "properties": {"name": {"type": "string", "const": "metriclens"}, "version": {"type": "string"}}},
+      "Config": {"type": "object", "required": ["scrapeIntervalMs", "retentionMs"], "properties": {"scrapeIntervalMs": {"type": "integer", "minimum": 0}, "retentionMs": {"type": "integer", "minimum": 0}}},
+      "ConfigUpdate": {"type": "object", "required": ["scrapeIntervalMs"], "properties": {"scrapeIntervalMs": {"type": "integer", "exclusiveMinimum": 0}}},
+      "Capabilities": {"type": "object", "required": ["name", "version", "scrapeIntervalMs", "retentionMs", "features", "limits", "links"], "properties": {"name": {"type": "string", "const": "metriclens"}, "version": {"type": "string"}, "scrapeIntervalMs": {"type": "integer"}, "retentionMs": {"type": "integer"}, "features": {"type": "array", "items": {"type": "string"}}, "limits": {"$ref": "#/components/schemas/CapabilitiesLimits"}, "links": {"$ref": "#/components/schemas/CapabilitiesLinks"}}},
+      "CapabilitiesLimits": {"type": "object", "required": ["reportFindings", "markerFieldChars", "readinessTimeoutMs", "batchMetrics", "batchSeriesPerMetric", "batchSeriesTotal", "batchPointsPerSeries", "batchPointsTotal", "batchDefaultMaxPoints"], "properties": {"reportFindings": {"type": "integer", "example": 50}, "markerFieldChars": {"type": "integer", "example": 128}, "readinessTimeoutMs": {"type": "integer", "example": 120000}, "batchMetrics": {"type": "integer", "example": 10}, "batchSeriesPerMetric": {"type": "integer", "example": 20}, "batchSeriesTotal": {"type": "integer", "example": 50}, "batchPointsPerSeries": {"type": "integer", "example": 200}, "batchPointsTotal": {"type": "integer", "example": 500}, "batchDefaultMaxPoints": {"type": "integer", "example": 100}}},
+      "CapabilitiesLinks": {"type": "object", "required": ["openapi", "llms"], "properties": {"openapi": {"type": "string", "const": "/openapi.json"}, "llms": {"type": "string", "const": "/llms.txt"}}},
+      "Window": {"type": "object", "required": ["start", "end", "durationMs"], "properties": {"start": {"type": "string", "format": "date-time", "description": "RFC3339Nano inclusive start."}, "end": {"type": "string", "format": "date-time", "description": "RFC3339Nano inclusive end."}, "durationMs": {"type": "integer"}}},
+      "TargetSummary": {"type": "object", "required": ["total", "up", "down", "healthy"], "properties": {"total": {"type": "integer"}, "up": {"type": "integer"}, "down": {"type": "integer"}, "healthy": {"type": "integer"}}},
+      "Evidence": {"type": "object", "required": ["targetId", "metrics", "start", "end"], "properties": {"targetId": {"type": "string"}, "metrics": {"type": "array", "items": {"type": "string"}}, "start": {"type": "string", "format": "date-time", "description": "RFC3339Nano batch start."}, "end": {"type": "string", "format": "date-time", "description": "RFC3339Nano batch end."}}},
+      "Finding": {"type": "object", "required": ["id", "severity", "signal", "message"], "properties": {"id": {"type": "string", "description": "Deterministic stable finding identity."}, "severity": {"type": "string", "enum": ["info", "warning", "error"]}, "signal": {"type": "string"}, "targetId": {"type": "string"}, "service": {"type": "string"}, "metric": {"type": "string"}, "message": {"type": "string", "maxLength": 512}, "delta": {"type": "number"}, "rate": {"type": "number"}, "current": {"type": "number"}, "change": {"type": "number"}, "peak": {"type": "number"}, "suggestion": {"type": "string", "maxLength": 512}, "evidence": {"$ref": "#/components/schemas/Evidence"}}},
+      "Marker": {"type": "object", "required": ["id", "createdAt"], "properties": {"id": {"type": "string"}, "createdAt": {"type": "string", "format": "date-time", "description": "RFC3339Nano marker time."}, "name": {"type": "string", "maxLength": 128}, "clientRunId": {"type": "string", "maxLength": 128}}},
+      "MarkerRequest": {"type": "object", "additionalProperties": false, "properties": {"name": {"type": "string", "maxLength": 128}, "clientRunId": {"type": "string", "maxLength": 128}}},
+      "Report": {"type": "object", "required": ["status", "window", "targets", "findings", "omitted"], "properties": {"status": {"type": "string", "enum": ["ok", "warning", "error"]}, "window": {"$ref": "#/components/schemas/Window"}, "targets": {"$ref": "#/components/schemas/TargetSummary"}, "findings": {"type": "array", "items": {"$ref": "#/components/schemas/Finding"}}, "omitted": {"type": "integer"}, "from": {"$ref": "#/components/schemas/Marker"}, "to": {"$ref": "#/components/schemas/Marker"}}},
+      "ReadinessService": {"type": "object", "required": ["service", "ready", "state", "targetCount", "readyTargets"], "properties": {"service": {"type": "string"}, "ready": {"type": "boolean"}, "state": {"type": "string", "enum": ["missing", "pending", "down", "ready"]}, "targetCount": {"type": "integer"}, "readyTargets": {"type": "integer"}}},
+      "Readiness": {"type": "object", "required": ["ready", "services", "waitedMs"], "properties": {"ready": {"type": "boolean"}, "services": {"type": "array", "items": {"$ref": "#/components/schemas/ReadinessService"}}, "waitedMs": {"type": "integer"}}},
+      "Container": {"type": "object", "required": ["id", "name", "image", "state", "networks", "exposedPorts", "labels"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "image": {"type": "string"}, "state": {"type": "string", "enum": ["running", "exited", "unknown"]}, "composeProject": {"type": "string"}, "composeService": {"type": "string"}, "networks": {"type": "array", "items": {"type": "string"}}, "exposedPorts": {"type": "array", "items": {"type": "integer"}}, "labels": {"type": "object", "additionalProperties": {"type": "string"}}}},
+      "Target": {"type": "object", "required": ["id", "serviceName", "containerName", "status", "discoveredAt"], "properties": {"id": {"type": "string"}, "serviceName": {"type": "string"}, "containerName": {"type": "string"}, "url": {"type": "string"}, "status": {"type": "string", "enum": ["up", "down"]}, "lastError": {"type": "string"}, "lastScrapeAt": {"type": "string", "format": "date-time"}, "lastScrapeDuration": {"type": "string"}, "discoveredAt": {"type": "string", "format": "date-time"}}},
+      "MetricSample": {"type": "object", "required": ["metric", "labels", "value"], "properties": {"metric": {"type": "string"}, "labels": {"type": "object", "additionalProperties": {"type": "string"}}, "value": {"type": "number"}, "timestamp": {"type": "integer"}}},
+      "MetricFamily": {"type": "object", "required": ["name", "type", "samples"], "properties": {"name": {"type": "string"}, "help": {"type": "string"}, "type": {"type": "string", "enum": ["counter", "gauge", "histogram", "summary", "untyped"]}, "samples": {"type": "array", "items": {"$ref": "#/components/schemas/MetricSample"}}}},
+      "TargetMetrics": {"type": "object", "required": ["target", "families"], "properties": {"target": {"$ref": "#/components/schemas/Target"}, "families": {"type": "array", "items": {"$ref": "#/components/schemas/MetricFamily"}}}},
+      "SeriesPoint": {"type": "object", "required": ["ts", "value"], "properties": {"ts": {"type": "string", "format": "date-time", "description": "RFC3339Nano sample timestamp."}, "value": {"type": "number"}}},
+      "Series": {"type": "object", "required": ["targetId", "metric", "labels", "points"], "properties": {"targetId": {"type": "string"}, "metric": {"type": "string"}, "labels": {"type": "object", "additionalProperties": {"type": "string"}}, "points": {"type": "array", "items": {"$ref": "#/components/schemas/SeriesPoint"}}}},
+      "Panel": {"type": "object", "required": ["id", "title", "kind", "metric", "confidence", "reason"], "properties": {"id": {"type": "string"}, "title": {"type": "string"}, "kind": {"type": "string", "enum": ["counter_rate", "gauge", "histogram_latency", "http_rate", "http_error_rate", "summary_quantiles"]}, "metric": {"type": "string"}, "confidence": {"type": "number"}, "reason": {"type": "string"}, "labels": {"type": "array", "items": {"type": "string"}}, "unit": {"type": "string"}}},
+      "QualityIssue": {"type": "object", "required": ["severity", "metric", "message"], "properties": {"severity": {"type": "string", "enum": ["info", "warning"]}, "metric": {"type": "string"}, "message": {"type": "string"}, "suggestion": {"type": "string"}}}
+    }
+  }
+}
