@@ -161,6 +161,11 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
+	options, err := parseReportOptions(r.URL.Query())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	s.configMu.RLock()
 	retention := s.config.Retention
 	s.configMu.RUnlock()
@@ -203,7 +208,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	if s.now != nil {
 		now = s.now()
 	}
-	writeJSON(w, http.StatusOK, diagnosis.Build(s.targets, now, window, limit))
+	writeJSON(w, http.StatusOK, diagnosis.BuildWithOptions(s.targets, now, window, limit, options))
 }
 
 func (s *Server) handleContainers(w http.ResponseWriter, r *http.Request) {
@@ -265,6 +270,11 @@ func (s *Server) handleTargetSeriesBatch(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	maxPoints, err := parseBatchMaxPoints(r.URL.Query().Get("maxPoints"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	bounds, err := parseSeriesBounds(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -272,26 +282,25 @@ func (s *Server) handleTargetSeriesBatch(w http.ResponseWriter, r *http.Request)
 	}
 
 	targetID := r.PathValue("targetId")
+	var series []model.Series
 	if batch, ok := s.targets.(batchTargetStore); ok {
-		writeJSON(w, http.StatusOK, batch.TargetSeriesBatch(targetID, metrics, bounds.start, bounds.end, bounds.at))
-		return
-	}
-
-	series := make([]model.Series, 0)
-	for _, metric := range metrics {
-		for _, item := range s.targets.TargetSeries(targetID, metric, nil) {
-			item.Points = filterSeriesPoints(item.Points, bounds.start, bounds.end, bounds.at)
-			if len(item.Points) > 0 {
-				series = append(series, item)
+		series = batch.TargetSeriesBatch(targetID, metrics, bounds.start, bounds.end, bounds.at)
+	} else {
+		series = make([]model.Series, 0)
+		for _, metric := range metrics {
+			for _, item := range s.targets.TargetSeries(targetID, metric, nil) {
+				item.Points = filterSeriesPoints(item.Points, bounds.start, bounds.end, bounds.at)
+				if len(item.Points) > 0 {
+					series = append(series, item)
+				}
 			}
 		}
 	}
-	sort.Slice(series, func(i, j int) bool {
-		if series[i].Metric != series[j].Metric {
-			return series[i].Metric < series[j].Metric
-		}
-		return labelsKey(series[i].Labels) < labelsKey(series[j].Labels)
-	})
+	series, stats := limitBatchSeries(series, maxPoints)
+	w.Header().Set("X-MetricLens-Series-Count", strconv.Itoa(stats.seriesCount))
+	w.Header().Set("X-MetricLens-Point-Count", strconv.Itoa(stats.pointCount))
+	w.Header().Set("X-MetricLens-Series-Truncated", strconv.FormatBool(stats.seriesTruncated))
+	w.Header().Set("X-MetricLens-Points-Truncated", strconv.FormatBool(stats.pointsTruncated))
 	writeJSON(w, http.StatusOK, series)
 }
 
@@ -315,6 +324,9 @@ func parseMetricNames(values url.Values) ([]string, error) {
 	}
 	if len(metrics) == 0 {
 		return nil, errors.New("metrics query parameter is required")
+	}
+	if len(metrics) > MaxBatchMetrics {
+		return nil, fmt.Errorf("metrics query parameter supports at most %d metric names", MaxBatchMetrics)
 	}
 	sort.Strings(metrics)
 	return metrics, nil

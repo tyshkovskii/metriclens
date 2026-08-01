@@ -38,6 +38,11 @@ func (s *Server) handleListMarkers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
+	options, err := parseReportOptions(r.URL.Query())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	fromID := r.URL.Query().Get("from")
 	if fromID == "" {
 		writeError(w, http.StatusBadRequest, "from query parameter is required")
@@ -72,7 +77,7 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	report := diagnosis.Build(s.targets, toTime, toTime.Sub(from.time), limit)
+	report := diagnosis.BuildWithOptions(s.targets, toTime, toTime.Sub(from.time), limit, options)
 	report.From = markerRef(from.Marker)
 	if toMarker != nil {
 		report.To = markerRef(toMarker.Marker)

@@ -1,6 +1,8 @@
 package diagnosis
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"math"
 	"sort"
 	"strings"
@@ -59,6 +61,7 @@ type MarkerRef struct {
 }
 
 type Finding struct {
+	ID       string `json:"id"`
 	Severity string `json:"severity"`
 	Signal   string `json:"signal"`
 	TargetID string `json:"targetId,omitempty"`
@@ -72,14 +75,35 @@ type Finding struct {
 	Change  *float64 `json:"change,omitempty"`
 	Peak    *float64 `json:"peak,omitempty"`
 
-	Suggestion string  `json:"suggestion,omitempty"`
-	score      float64 `json:"-"`
+	Suggestion     string              `json:"suggestion,omitempty"`
+	Evidence       *EvidenceDescriptor `json:"evidence,omitempty"`
+	score          float64             `json:"-"`
+	stableIdentity string              `json:"-"`
+}
+
+type EvidenceDescriptor struct {
+	TargetID string   `json:"targetId"`
+	Metrics  []string `json:"metrics"`
+	Start    string   `json:"start"`
+	End      string   `json:"end"`
+}
+
+// BuildOptions controls report filtering. Empty slices preserve Build's
+// original unfiltered behavior.
+type BuildOptions struct {
+	Severities  []string
+	Services    []string
+	ChangedOnly bool
 }
 
 // Build creates a compact, deterministic report over the exact requested
 // window. The source is queried only for current target metadata and selected
 // classifier metrics; raw series are never included in the result.
 func Build(source Source, now time.Time, window time.Duration, limit int) Report {
+	return BuildWithOptions(source, now, window, limit, BuildOptions{})
+}
+
+func BuildWithOptions(source Source, now time.Time, window time.Duration, limit int, options BuildOptions) Report {
 	if window <= 0 {
 		window = DefaultWindow
 	}
@@ -107,8 +131,11 @@ func Build(source Source, now time.Time, window time.Duration, limit int) Report
 		}
 		return targets[i].ID < targets[j].ID
 	})
-	report.Targets.Total = len(targets)
 	for _, target := range targets {
+		if !options.allowsService(target.ServiceName) {
+			continue
+		}
+		report.Targets.Total++
 		if target.Status == model.TargetStatusUp {
 			report.Targets.Up++
 			if target.LastError == "" {
@@ -177,6 +204,10 @@ func Build(source Source, now time.Time, window time.Duration, limit int) Report
 			report.Findings = append(report.Findings, lifecycleFinding(event))
 		}
 	}
+	for index := range report.Findings {
+		normalizeFinding(&report.Findings[index], report.Window)
+	}
+	report.Findings = filterFindings(report.Findings, options)
 
 	sort.SliceStable(report.Findings, func(i, j int) bool {
 		left, right := report.Findings[i], report.Findings[j]
@@ -211,6 +242,81 @@ func Build(source Source, now time.Time, window time.Duration, limit int) Report
 		}
 	}
 	return report
+}
+
+func (options BuildOptions) allowsSeverity(severity string) bool {
+	if len(options.Severities) == 0 {
+		return true
+	}
+	return containsString(options.Severities, severity)
+}
+
+func (options BuildOptions) allowsService(service string) bool {
+	if len(options.Services) == 0 {
+		return true
+	}
+	return containsString(options.Services, service)
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func filterFindings(findings []Finding, options BuildOptions) []Finding {
+	filtered := make([]Finding, 0, len(findings))
+	for _, finding := range findings {
+		if !options.allowsSeverity(finding.Severity) || !options.allowsService(finding.Service) {
+			continue
+		}
+		if options.ChangedOnly && !findingChanged(finding) {
+			continue
+		}
+		filtered = append(filtered, finding)
+	}
+	return filtered
+}
+
+func findingChanged(finding Finding) bool {
+	switch finding.Signal {
+	case "counter":
+		return finding.Delta != nil && *finding.Delta != 0
+	case "gauge":
+		return finding.Change != nil && *finding.Change != 0
+	default:
+		return true
+	}
+}
+
+func normalizeFinding(finding *Finding, window Window) {
+	finding.Message = boundedDiagnostic(finding.Message)
+	finding.Suggestion = boundedDiagnostic(finding.Suggestion)
+	if finding.Metric != "" && finding.TargetID != "" {
+		finding.Evidence = &EvidenceDescriptor{
+			TargetID: finding.TargetID,
+			Metrics:  []string{finding.Metric},
+			Start:    window.Start,
+			End:      window.End,
+		}
+	}
+	identity := finding.stableIdentity
+	if identity == "" {
+		identity = strings.Join([]string{finding.Severity, finding.Signal, finding.TargetID, finding.Service, finding.Metric, finding.Message}, "\x00")
+	}
+	hash := sha256.Sum256([]byte(identity))
+	finding.ID = "finding-" + hex.EncodeToString(hash[:])
+}
+
+func boundedDiagnostic(value string) string {
+	runes := []rune(value)
+	if len(runes) <= 512 {
+		return string(runes)
+	}
+	return string(runes[:511]) + "…"
 }
 
 type selectedObservation struct {
@@ -305,12 +411,13 @@ func lifecycleFinding(event model.LifecycleEvent) Finding {
 		message += ": " + event.Error
 	}
 	return Finding{
-		Severity: severity,
-		Signal:   signal,
-		TargetID: event.TargetID,
-		Service:  event.ServiceName,
-		Message:  message,
-		score:    score,
+		Severity:       severity,
+		Signal:         signal,
+		TargetID:       event.TargetID,
+		Service:        event.ServiceName,
+		Message:        message,
+		score:          score,
+		stableIdentity: strings.Join([]string{string(event.Kind), event.At, event.TargetID, event.ServiceName, event.ContainerName, string(event.From), string(event.To), message}, "\x00"),
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -458,6 +459,151 @@ func TestTargetSeriesBatchRejectsInvalidBounds(t *testing.T) {
 	}
 }
 
+func TestTargetSeriesBatchRejectsTooManyMetricsAndInvalidMaxPoints(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, &fakeBatchTargetStore{}, Config{})
+	tooMany := "/api/targets/abc123/series/batch?metrics=" + strings.Join([]string{
+		"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k",
+	}, ",")
+	for _, path := range []string{tooMany, "/api/targets/abc123/series/batch?metrics=up&maxPoints=0"} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("path %q status = %d, want %d", path, rec.Code, http.StatusBadRequest)
+		}
+	}
+}
+
+func TestTargetSeriesBatchCapsSeriesAndPointsWithHeaders(t *testing.T) {
+	series := make([]model.Series, 0, MaxBatchSeriesTotal+10)
+	for index := 0; index < MaxBatchSeriesTotal+10; index++ {
+		series = append(series, model.Series{
+			TargetID: "abc123",
+			Metric:   "up",
+			Labels:   map[string]string{"instance": fmt.Sprintf("%02d", index)},
+			Points: []model.SeriesPoint{
+				{TS: "2026-06-06T12:00:00Z", Value: float64(index)},
+			},
+		})
+	}
+	store := &fakeBatchTargetStore{fakeTargetStore: fakeTargetStore{}, batch: series}
+	server := NewServer(fakeContainerLister{}, store, Config{})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/abc123/series/batch?metrics=up", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body []model.Series
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body) != MaxBatchSeriesPerMetric || rec.Header().Get("X-MetricLens-Series-Truncated") != "true" {
+		t.Fatalf("series = %d truncated = %q, want %d and true", len(body), rec.Header().Get("X-MetricLens-Series-Truncated"), MaxBatchSeriesPerMetric)
+	}
+	if rec.Header().Get("X-MetricLens-Series-Count") != fmt.Sprint(MaxBatchSeriesPerMetric) || rec.Header().Get("X-MetricLens-Point-Count") != fmt.Sprint(MaxBatchSeriesPerMetric) {
+		t.Fatalf("counts = series %q points %q, want %d each", rec.Header().Get("X-MetricLens-Series-Count"), rec.Header().Get("X-MetricLens-Point-Count"), MaxBatchSeriesPerMetric)
+	}
+	if rec.Header().Get("X-MetricLens-Points-Truncated") != "false" {
+		t.Fatalf("points truncated = %q, want false", rec.Header().Get("X-MetricLens-Points-Truncated"))
+	}
+}
+
+func TestTargetSeriesBatchDownsamplesAndPreservesEndpoints(t *testing.T) {
+	points := make([]model.SeriesPoint, 0, 10)
+	for index := 0; index < 10; index++ {
+		points = append(points, model.SeriesPoint{TS: fmt.Sprintf("2026-06-06T12:00:%02dZ", index), Value: float64(index)})
+	}
+	limited, stats := limitBatchSeries([]model.Series{{Metric: "up", Points: points}}, 4)
+	if len(limited) != 1 || len(limited[0].Points) != 4 {
+		t.Fatalf("limited = %#v, stats = %#v, want one series with four points", limited, stats)
+	}
+	got := limited[0].Points
+	if got[0].Value != 0 || got[len(got)-1].Value != 9 || !stats.pointsTruncated {
+		t.Fatalf("points = %#v stats = %#v, want first 0 last 9 and truncation", got, stats)
+	}
+	latest, _ := limitBatchSeries([]model.Series{{Metric: "up", Points: points}}, 1)
+	if len(latest[0].Points) != 1 || latest[0].Points[0].Value != 9 {
+		t.Fatalf("maxPoints=1 points = %#v, want latest point", latest[0].Points)
+	}
+}
+
+func TestBatchLimitsEnforceGlobalSeriesAndPointCaps(t *testing.T) {
+	series := make([]model.Series, 0, MaxBatchSeriesTotal+5)
+	for index := 0; index < MaxBatchSeriesTotal+5; index++ {
+		series = append(series, model.Series{Metric: fmt.Sprintf("metric_%02d", index), Points: []model.SeriesPoint{{TS: "2026-06-06T12:00:00Z", Value: float64(index)}}})
+	}
+	limited, stats := limitBatchSeries(series, MaxBatchPointsPerSeries)
+	if len(limited) != MaxBatchSeriesTotal || stats.seriesCount != MaxBatchSeriesTotal {
+		t.Fatalf("series count = %d/%d, want %d", len(limited), stats.seriesCount, MaxBatchSeriesTotal)
+	}
+	if stats.pointCount != MaxBatchSeriesTotal || !stats.seriesTruncated || stats.pointsTruncated {
+		t.Fatalf("stats = %#v, want only global series truncation", stats)
+	}
+
+	pointSeries := make([]model.Series, 0, 3)
+	for index := 0; index < 3; index++ {
+		points := make([]model.SeriesPoint, 0, MaxBatchPointsPerSeries+1)
+		for pointIndex := 0; pointIndex < MaxBatchPointsPerSeries+1; pointIndex++ {
+			points = append(points, model.SeriesPoint{TS: fmt.Sprintf("2026-06-06T12:00:%02dZ", pointIndex%60), Value: float64(pointIndex)})
+		}
+		pointSeries = append(pointSeries, model.Series{Metric: fmt.Sprintf("point_metric_%02d", index), Points: points})
+	}
+	pointLimited, pointStats := limitBatchSeries(pointSeries, MaxBatchPointsPerSeries)
+	if pointStats.pointCount != MaxBatchPointsTotal || !pointStats.pointsTruncated {
+		t.Fatalf("point stats = %#v, want global point truncation at %d", pointStats, MaxBatchPointsTotal)
+	}
+	if len(pointLimited[0].Points) != MaxBatchPointsPerSeries || len(pointLimited[len(pointLimited)-1].Points) != MaxBatchPointsTotal-2*MaxBatchPointsPerSeries {
+		t.Fatalf("first/last point counts = %d/%d, want %d/%d after global cap", len(pointLimited[0].Points), len(pointLimited[len(pointLimited)-1].Points), MaxBatchPointsPerSeries, MaxBatchPointsTotal-2*MaxBatchPointsPerSeries)
+	}
+}
+
+func TestParseBatchMaxPointsCapsConfiguredMaximum(t *testing.T) {
+	if got, err := parseBatchMaxPoints("999"); err != nil || got != MaxBatchPointsPerSeries {
+		t.Fatalf("maxPoints=999 = %d, %v, want capped %d", got, err, MaxBatchPointsPerSeries)
+	}
+}
+
+func TestTargetSeriesBatchNativeAndFallbackHaveIdenticalLimits(t *testing.T) {
+	series := []model.Series{{
+		TargetID: "abc123",
+		Metric:   "up",
+		Labels:   map[string]string{"instance": "one"},
+		Points: []model.SeriesPoint{
+			{TS: "2026-06-06T12:00:00Z", Value: 0},
+			{TS: "2026-06-06T12:00:01Z", Value: 1},
+			{TS: "2026-06-06T12:00:02Z", Value: 2},
+		},
+	}}
+	native := NewServer(fakeContainerLister{}, &fakeBatchTargetStore{fakeTargetStore: fakeTargetStore{}, batch: series}, Config{})
+	fallback := NewServer(fakeContainerLister{}, fakeTargetStore{series: series}, Config{})
+
+	nativeRequest := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/abc123/series/batch?metrics=up&maxPoints=2", nil)
+	nativeResponse := httptest.NewRecorder()
+	native.ServeHTTP(nativeResponse, nativeRequest)
+	fallbackRequest := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/targets/abc123/series/batch?metrics=up&maxPoints=2", nil)
+	fallbackResponse := httptest.NewRecorder()
+	fallback.ServeHTTP(fallbackResponse, fallbackRequest)
+	if nativeResponse.Code != http.StatusOK || fallbackResponse.Code != http.StatusOK {
+		t.Fatalf("statuses = %d and %d, want 200", nativeResponse.Code, fallbackResponse.Code)
+	}
+	if nativeResponse.Body.String() != fallbackResponse.Body.String() {
+		t.Fatalf("native body = %s, fallback body = %s, want parity", nativeResponse.Body.String(), fallbackResponse.Body.String())
+	}
+	for _, header := range []string{"X-MetricLens-Series-Count", "X-MetricLens-Point-Count", "X-MetricLens-Series-Truncated", "X-MetricLens-Points-Truncated"} {
+		if nativeResponse.Header().Get(header) != fallbackResponse.Header().Get(header) {
+			t.Fatalf("header %s = %q and %q, want parity", header, nativeResponse.Header().Get(header), fallbackResponse.Header().Get(header))
+		}
+	}
+	var body []model.Series
+	if err := json.NewDecoder(nativeResponse.Body).Decode(&body); err != nil {
+		t.Fatalf("decode native body: %v", err)
+	}
+	if len(body) != 1 || len(body[0].Points) != 2 || body[0].Points[0].Value != 0 || body[0].Points[1].Value != 2 {
+		t.Fatalf("body = %#v, want endpoints after limiting", body)
+	}
+}
+
 func TestDecodeLabels(t *testing.T) {
 	labels, err := decodeLabels(`{"method":"GET","status":"200"}`)
 	if err != nil {
@@ -609,6 +755,23 @@ func TestReportRejectsWindowBeyondRetention(t *testing.T) {
 	}
 	if body["error"] != "window query parameter must not exceed retention" {
 		t.Fatalf("error = %q, want retention validation", body["error"])
+	}
+}
+
+func TestReportRejectsInvalidFilters(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
+	for _, path := range []string{
+		"/api/report?severity=debug",
+		"/api/report?severity=info,,error",
+		"/api/report?service=",
+		"/api/report?changedOnly=maybe",
+	} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("path %q status = %d, want %d", path, rec.Code, http.StatusBadRequest)
+		}
 	}
 }
 
