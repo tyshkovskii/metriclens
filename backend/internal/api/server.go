@@ -83,6 +83,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/config", s.handleConfig)
 	s.mux.HandleFunc("PUT /api/config", s.handleConfigUpdate)
 	s.mux.HandleFunc("GET /api/report", s.handleReport)
+	s.mux.HandleFunc("GET /api/readiness", s.handleReadiness)
 	s.mux.HandleFunc("POST /api/markers", s.handleCreateMarker)
 	s.mux.HandleFunc("GET /api/markers", s.handleListMarkers)
 	s.mux.HandleFunc("GET /api/compare", s.handleCompare)

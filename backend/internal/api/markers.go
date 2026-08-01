@@ -8,8 +8,10 @@ import (
 )
 
 type Marker struct {
-	ID        string `json:"id"`
-	CreatedAt string `json:"createdAt"`
+	ID          string `json:"id"`
+	CreatedAt   string `json:"createdAt"`
+	Name        string `json:"name,omitempty"`
+	ClientRunID string `json:"clientRunId,omitempty"`
 }
 
 type storedMarker struct {
@@ -27,13 +29,13 @@ func newMarkerStore() *markerStore {
 	return &markerStore{markers: map[string]storedMarker{}}
 }
 
-func (m *markerStore) create(now time.Time, retention time.Duration) Marker {
+func (m *markerStore) create(now time.Time, retention time.Duration, name, clientRunID string) Marker {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.expireLocked(now, retention)
 	m.nextID++
 	marker := storedMarker{
-		Marker: Marker{ID: fmt.Sprintf("marker-%d", m.nextID), CreatedAt: now.UTC().Format(time.RFC3339Nano)},
+		Marker: Marker{ID: fmt.Sprintf("marker-%d", m.nextID), CreatedAt: now.UTC().Format(time.RFC3339Nano), Name: name, ClientRunID: clientRunID},
 		time:   now.UTC(),
 	}
 	m.markers[marker.ID] = marker

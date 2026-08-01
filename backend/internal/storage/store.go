@@ -41,6 +41,14 @@ func New(retention time.Duration) *Store {
 	}
 }
 
+// Retention reports the effective in-memory history window to consumers that
+// retain related observations, such as scraper lifecycle events.
+func (s *Store) Retention() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.retention
+}
+
 func (s *Store) Record(targetID string, families []model.MetricFamily, scrapedAt time.Time) {
 	s.RecordWithIdentity(targetID, targetID, families, scrapedAt)
 }

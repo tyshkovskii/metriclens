@@ -115,3 +115,75 @@ func TestBuildRanksErrorsAndReportsOmittedFindings(t *testing.T) {
 		t.Fatalf("omitted = %d, want 0", report.Omitted)
 	}
 }
+
+func TestBuildUsesMostRecentBaselineBeforeWindow(t *testing.T) {
+	now := time.Date(2026, 6, 6, 12, 2, 0, 0, time.UTC)
+	target := model.Target{ID: "target-1", ServiceName: "api", Status: model.TargetStatusUp}
+	source := fakeSource{
+		targets: []model.Target{target},
+		metrics: map[string]model.TargetMetricsResponse{
+			"target-1": {Target: target, Families: []model.MetricFamily{{
+				Name: "requests_total", Type: model.MetricTypeCounter, HasType: true,
+				Samples: []model.MetricSample{{Metric: "requests_total", Labels: map[string]string{}, Value: 12}},
+			}}},
+		},
+		series: map[string][]model.Series{
+			"target-1": {{Metric: "requests_total", Labels: map[string]string{}, Points: []model.SeriesPoint{
+				{TS: "2026-06-06T12:00:30Z", Value: 10},
+				{TS: "2026-06-06T12:01:30Z", Value: 12},
+			}}},
+		},
+	}
+
+	report := Build(source, now, time.Minute, 10)
+	for _, finding := range report.Findings {
+		if finding.Signal == "counter" {
+			if finding.Delta == nil || *finding.Delta != 2 {
+				t.Fatalf("counter delta = %v, want 2 using baseline", finding.Delta)
+			}
+			return
+		}
+	}
+	t.Fatal("counter finding missing")
+}
+
+func TestBuildIncludesLifecycleEvents(t *testing.T) {
+	now := time.Date(2026, 6, 6, 12, 1, 0, 0, time.UTC)
+	target := model.Target{ID: "target-1", ServiceName: "api", Status: model.TargetStatusUp}
+	source := lifecycleFakeSource{
+		fakeSource: fakeSource{targets: []model.Target{target}},
+		events: []model.LifecycleEvent{{
+			At: "2026-06-06T12:00:30Z", Kind: model.LifecycleEventDisappeared,
+			TargetID: "old", ServiceName: "api", From: model.TargetStatusUp,
+		}},
+	}
+	report := Build(source, now, time.Minute, 10)
+	for _, finding := range report.Findings {
+		if finding.Signal == "lifecycle" && finding.TargetID == "old" {
+			if finding.Severity != "error" {
+				t.Fatalf("lifecycle severity = %q, want error", finding.Severity)
+			}
+			return
+		}
+	}
+	t.Fatal("disappearance finding missing")
+}
+
+type lifecycleFakeSource struct {
+	fakeSource
+	events []model.LifecycleEvent
+}
+
+func (f lifecycleFakeSource) LifecycleEvents(start, end time.Time) []model.LifecycleEvent {
+	result := make([]model.LifecycleEvent, 0)
+	for _, event := range f.events {
+		at, err := time.Parse(time.RFC3339Nano, event.At)
+		if err != nil {
+			continue
+		}
+		if !at.Before(start) && !at.After(end) {
+			result = append(result, event)
+		}
+	}
+	return result
+}

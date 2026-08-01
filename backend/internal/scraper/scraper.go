@@ -48,6 +48,10 @@ type stableSeriesStore interface {
 	SeriesBatchFor(historyID, targetID string, metrics []string, start, end, at *time.Time) []model.Series
 }
 
+type retentionProvider interface {
+	Retention() time.Duration
+}
+
 type Scraper struct {
 	containers      ContainerLister
 	prober          TargetProber
@@ -56,11 +60,13 @@ type Scraper struct {
 	interval        time.Duration
 	intervalUpdates chan time.Duration
 	now             func() time.Time
+	retention       time.Duration
 
 	mu         sync.RWMutex
 	targets    map[string]model.Target
 	families   map[string][]model.MetricFamily
 	historyIDs map[string]string
+	events     []model.LifecycleEvent
 	lastError  error
 }
 
@@ -71,6 +77,10 @@ func New(containers ContainerLister, prober TargetProber, client HTTPClient, ser
 	if interval <= 0 {
 		interval = DefaultInterval
 	}
+	retention := 15 * time.Minute
+	if provider, ok := series.(retentionProvider); ok && provider.Retention() > 0 {
+		retention = provider.Retention()
+	}
 	return &Scraper{
 		containers:      containers,
 		prober:          prober,
@@ -79,9 +89,11 @@ func New(containers ContainerLister, prober TargetProber, client HTTPClient, ser
 		interval:        interval,
 		intervalUpdates: make(chan time.Duration, 1),
 		now:             time.Now,
+		retention:       retention,
 		targets:         map[string]model.Target{},
 		families:        map[string][]model.MetricFamily{},
 		historyIDs:      map[string]string{},
+		events:          []model.LifecycleEvent{},
 	}
 }
 
@@ -184,6 +196,7 @@ func (s *Scraper) RunOnce(ctx context.Context) error {
 			delete(s.families, targetID)
 		}
 	}
+	s.recordLifecycleEventsLocked(nextTargets, s.now().UTC())
 	s.targets = nextTargets
 	s.historyIDs = nextHistoryIDs
 	s.lastError = nil
@@ -226,6 +239,115 @@ func (s *Scraper) TargetMetrics(targetID string) (model.TargetMetricsResponse, b
 		Target:   target,
 		Families: families,
 	}, true
+}
+
+// LifecycleEvents returns retained target lifecycle changes in the requested
+// inclusive time range. Events are snapshots, so disappeared targets remain
+// diagnosable after they leave Targets().
+func (s *Scraper) LifecycleEvents(start, end time.Time) []model.LifecycleEvent {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]model.LifecycleEvent, 0)
+	for _, event := range s.events {
+		timestamp, err := time.Parse(time.RFC3339Nano, event.At)
+		if err != nil || timestamp.Before(start) || timestamp.After(end) {
+			continue
+		}
+		result = append(result, event)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].At != result[j].At {
+			return result[i].At < result[j].At
+		}
+		if result[i].Kind != result[j].Kind {
+			return result[i].Kind < result[j].Kind
+		}
+		return result[i].TargetID < result[j].TargetID
+	})
+	return result
+}
+
+func (s *Scraper) recordLifecycleEventsLocked(next map[string]model.Target, at time.Time) {
+	previous := make(map[string]model.Target, len(s.targets))
+	for targetID, target := range s.targets {
+		previous[targetHistoryID(targetID, target)] = target
+	}
+	seen := make(map[string]struct{}, len(next))
+	at = at.UTC()
+	for targetID, target := range next {
+		identity := targetHistoryID(targetID, target)
+		seen[identity] = struct{}{}
+		old, ok := previous[identity]
+		if !ok {
+			s.events = append(s.events, model.LifecycleEvent{
+				At:            at.Format(time.RFC3339Nano),
+				Kind:          model.LifecycleEventAppeared,
+				TargetID:      target.ID,
+				ServiceName:   target.ServiceName,
+				ContainerName: target.ContainerName,
+				To:            target.Status,
+				Error:         target.LastError,
+				HistoryID:     identity,
+			})
+			continue
+		}
+		if old.ID != target.ID {
+			s.events = append(s.events, model.LifecycleEvent{
+				At:            at.Format(time.RFC3339Nano),
+				Kind:          model.LifecycleEventRecreated,
+				TargetID:      target.ID,
+				ServiceName:   target.ServiceName,
+				ContainerName: target.ContainerName,
+				To:            target.Status,
+				Error:         target.LastError,
+				HistoryID:     identity,
+			})
+		}
+		if old.Status != target.Status {
+			s.events = append(s.events, model.LifecycleEvent{
+				At:            at.Format(time.RFC3339Nano),
+				Kind:          model.LifecycleEventStatusTransition,
+				TargetID:      target.ID,
+				ServiceName:   target.ServiceName,
+				ContainerName: target.ContainerName,
+				From:          old.Status,
+				To:            target.Status,
+				Error:         target.LastError,
+				HistoryID:     identity,
+			})
+		}
+	}
+	for identity, target := range previous {
+		if _, ok := seen[identity]; ok {
+			continue
+		}
+		s.events = append(s.events, model.LifecycleEvent{
+			At:            at.Format(time.RFC3339Nano),
+			Kind:          model.LifecycleEventDisappeared,
+			TargetID:      target.ID,
+			ServiceName:   target.ServiceName,
+			ContainerName: target.ContainerName,
+			From:          target.Status,
+			Error:         target.LastError,
+			HistoryID:     identity,
+		})
+	}
+	cutoff := at.Add(-s.retention)
+	kept := s.events[:0]
+	for _, event := range s.events {
+		timestamp, err := time.Parse(time.RFC3339Nano, event.At)
+		if err == nil && !timestamp.Before(cutoff) {
+			kept = append(kept, event)
+		}
+	}
+	s.events = kept
+}
+
+func targetHistoryID(targetID string, target model.Target) string {
+	if target.HistoryID != "" {
+		return target.HistoryID
+	}
+	return targetID
 }
 
 func (s *Scraper) TargetSeries(targetID, metric string, labels map[string]string) []model.Series {

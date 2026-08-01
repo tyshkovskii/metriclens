@@ -648,6 +648,109 @@ func TestMarkersAndCompare(t *testing.T) {
 	if report.Window.Start != first.CreatedAt || report.Window.End != second.CreatedAt {
 		t.Fatalf("window = %#v, want marker timestamps", report.Window)
 	}
+	if report.From == nil || report.From.ID != first.ID || report.To == nil || report.To.ID != second.ID {
+		t.Fatalf("marker refs = from %#v to %#v, want compare markers", report.From, report.To)
+	}
+}
+
+func TestMarkersAcceptOptionalNamesAndClientRunID(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/markers", strings.NewReader(`{"name":"checkout test","clientRunId":"run-42"}`))
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusCreated)
+	}
+	var marker Marker
+	if err := json.NewDecoder(response.Body).Decode(&marker); err != nil {
+		t.Fatalf("decode marker: %v", err)
+	}
+	if marker.Name != "checkout test" || marker.ClientRunID != "run-42" {
+		t.Fatalf("marker = %#v, want named marker", marker)
+	}
+
+	listRequest := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/markers", nil)
+	listResponse := httptest.NewRecorder()
+	server.ServeHTTP(listResponse, listRequest)
+	var markers []Marker
+	if err := json.NewDecoder(listResponse.Body).Decode(&markers); err != nil {
+		t.Fatalf("decode marker list: %v", err)
+	}
+	if len(markers) != 1 || markers[0].Name != marker.Name || markers[0].ClientRunID != marker.ClientRunID {
+		t.Fatalf("markers = %#v, want named marker fields", markers)
+	}
+}
+
+func TestMarkerRequestValidation(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
+	for _, body := range []string{
+		`{"name":` + `"` + strings.Repeat("x", 129) + `"}`,
+		`{"clientRunId":"\u0001"}`,
+		`not-json`,
+	} {
+		request := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/markers", strings.NewReader(body))
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("body %q status = %d, want %d", body, response.Code, http.StatusBadRequest)
+		}
+	}
+}
+
+func TestReadinessReadyForSelectedServices(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{targets: []model.Target{
+		{ID: "worker-1", ServiceName: "worker", Status: model.TargetStatusUp, LastScrapeAt: "2026-06-06T12:00:00Z"},
+		{ID: "api-1", ServiceName: "api", Status: model.TargetStatusUp, LastScrapeAt: "2026-06-06T12:00:00Z"},
+	}}, Config{})
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/readiness?service=worker&service=api", nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+	var body readinessResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode readiness: %v", err)
+	}
+	if !body.Ready || len(body.Services) != 2 || body.Services[0].Service != "api" || body.Services[1].Service != "worker" {
+		t.Fatalf("readiness = %#v, want sorted ready services", body)
+	}
+	if body.WaitedMs > 100 {
+		t.Fatalf("waitedMs = %d, want an immediate readiness result", body.WaitedMs)
+	}
+}
+
+func TestReadinessTimeoutAndMissingService(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/readiness?service=missing&timeout=0", nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusRequestTimeout {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusRequestTimeout)
+	}
+	var body readinessResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode readiness: %v", err)
+	}
+	if body.Ready || len(body.Services) != 1 || body.Services[0].State != "missing" {
+		t.Fatalf("readiness = %#v, want missing timeout", body)
+	}
+}
+
+func TestReadinessValidatesServicesAndTimeout(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
+	for _, path := range []string{
+		"/api/readiness",
+		"/api/readiness?service=api&timeout=-1s",
+		"/api/readiness?service=api&timeout=121s",
+	} {
+		request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil)
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("path %q status = %d, want %d", path, response.Code, http.StatusBadRequest)
+		}
+	}
 }
 
 func TestMarkersExpireWithRetention(t *testing.T) {

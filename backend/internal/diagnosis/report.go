@@ -24,6 +24,10 @@ type Source interface {
 	TargetSeries(string, string, map[string]string) []model.Series
 }
 
+type lifecycleSource interface {
+	LifecycleEvents(start, end time.Time) []model.LifecycleEvent
+}
+
 type Window struct {
 	Start      string `json:"start"`
 	End        string `json:"end"`
@@ -43,6 +47,15 @@ type Report struct {
 	Targets  TargetSummary `json:"targets"`
 	Findings []Finding     `json:"findings"`
 	Omitted  int           `json:"omitted"`
+	From     *MarkerRef    `json:"from,omitempty"`
+	To       *MarkerRef    `json:"to,omitempty"`
+}
+
+type MarkerRef struct {
+	ID          string `json:"id"`
+	CreatedAt   string `json:"createdAt"`
+	Name        string `json:"name,omitempty"`
+	ClientRunID string `json:"clientRunId,omitempty"`
 }
 
 type Finding struct {
@@ -159,6 +172,11 @@ func Build(source Source, now time.Time, window time.Duration, limit int) Report
 			}
 		}
 	}
+	if events, ok := source.(lifecycleSource); ok {
+		for _, event := range events.LifecycleEvents(start, now) {
+			report.Findings = append(report.Findings, lifecycleFinding(event))
+		}
+	}
 
 	sort.SliceStable(report.Findings, func(i, j int) bool {
 		left, right := report.Findings[i], report.Findings[j]
@@ -231,12 +249,25 @@ func boundedSeries(series []model.Series, start, end time.Time) []model.Series {
 	result := make([]model.Series, 0, len(series))
 	for _, item := range series {
 		points := make([]model.SeriesPoint, 0, len(item.Points))
+		var baseline *model.SeriesPoint
+		var baselineTime time.Time
 		for _, point := range item.Points {
 			ts, err := time.Parse(time.RFC3339Nano, point.TS)
-			if err != nil || ts.Before(start) || ts.After(end) {
+			if err != nil || ts.After(end) {
+				continue
+			}
+			if ts.Before(start) {
+				if baseline == nil || ts.After(baselineTime) {
+					pointCopy := point
+					baseline = &pointCopy
+					baselineTime = ts
+				}
 				continue
 			}
 			points = append(points, point)
+		}
+		if baseline != nil {
+			points = append([]model.SeriesPoint{*baseline}, points...)
 		}
 		if len(points) > 0 {
 			item.Points = points
@@ -244,6 +275,43 @@ func boundedSeries(series []model.Series, start, end time.Time) []model.Series {
 		}
 	}
 	return result
+}
+
+func lifecycleFinding(event model.LifecycleEvent) Finding {
+	severity := "info"
+	message := "target appeared"
+	score := 10.0
+	signal := "lifecycle"
+	switch event.Kind {
+	case model.LifecycleEventAppeared:
+		// First discovery is informational.
+	case model.LifecycleEventRecreated:
+		message = "target recreated"
+	case model.LifecycleEventDisappeared:
+		severity = "error"
+		message = "target disappeared"
+		score = 900
+	case model.LifecycleEventStatusTransition:
+		if event.To == model.TargetStatusDown {
+			severity = "error"
+			score = 950
+		} else {
+			severity = "warning"
+			score = 400
+		}
+		message = "target status changed from " + string(event.From) + " to " + string(event.To)
+	}
+	if event.Error != "" {
+		message += ": " + event.Error
+	}
+	return Finding{
+		Severity: severity,
+		Signal:   signal,
+		TargetID: event.TargetID,
+		Service:  event.ServiceName,
+		Message:  message,
+		score:    score,
+	}
 }
 
 func fallbackSeries(families []model.MetricFamily, metric string, now time.Time) []model.Series {
