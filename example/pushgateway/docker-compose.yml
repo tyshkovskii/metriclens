@@ -1,0 +1,31 @@
+name: metriclens-example-pushgateway
+
+services:
+  metriclens:
+    image: metriclens:dev
+    build:
+      context: ../..
+    ports:
+      - "9999:9999"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      metriclens_SCRAPE_INTERVAL: 5s
+      metriclens_RETENTION: 15m
+
+  pushgateway:
+    image: prom/pushgateway:v1.11.1
+    expose:
+      - "9091"
+    labels:
+      metriclens.port: "9091"
+      metriclens.path: "/metrics"
+
+  batch:
+    build:
+      context: ./batch
+    depends_on:
+      - pushgateway
+    labels:
+      # The job exits after pushing; metriclens scrapes the Pushgateway target.
+      metriclens.exclude: "true"

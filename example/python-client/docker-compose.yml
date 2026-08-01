@@ -1,0 +1,23 @@
+name: metriclens-example-python
+
+services:
+  metriclens:
+    image: metriclens:dev
+    build:
+      context: ../..
+    ports:
+      - "9999:9999"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      metriclens_SCRAPE_INTERVAL: 5s
+      metriclens_RETENTION: 15m
+
+  app:
+    build:
+      context: ./app
+    expose:
+      - "8000"
+    labels:
+      metriclens.port: "8000"
+      metriclens.path: "/metrics"

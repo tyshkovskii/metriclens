@@ -6,7 +6,7 @@ metriclens is a zero-config, drop-in observability layer for Compose-based devel
 
 ## Try it
 
-The [example project](example/basic) runs metriclens alongside two instrumented services generating live traffic:
+The [basic example](example/basic) runs metriclens alongside two instrumented services generating live traffic:
 
 ```bash
 git clone https://github.com/tyshkovskii/metriclens.git
@@ -19,6 +19,10 @@ Open <http://localhost:9999>. You'll see both services discovered and scraped, w
 - **Raw metrics** — every metric with its help text, type, and labels, updated live.
 - **Panels** — charts built automatically from metric types: rates for counters, current values for gauges, latency percentiles for histograms.
 - **Quality warnings** — missing `HELP` or `TYPE`, counters not named `*_total`, labels that look high-cardinality.
+
+See the [example index](example) for additional projects showing application
+client-library metrics, an exporter for an uninstrumented Redis service, and a
+Pushgateway-backed batch job.
 
 ## Use it in your project
 

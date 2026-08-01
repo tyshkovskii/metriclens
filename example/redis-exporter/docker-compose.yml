@@ -1,0 +1,53 @@
+name: metriclens-example-redis-exporter
+
+services:
+  metriclens:
+    image: metriclens:dev
+    build:
+      context: ../..
+    ports:
+      - "9999:9999"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      metriclens_SCRAPE_INTERVAL: 5s
+      metriclens_RETENTION: 15m
+
+  redis:
+    image: redis:7.4-alpine
+    expose:
+      - "6379"
+    labels:
+      # Redis does not expose Prometheus text itself; the exporter below does.
+      metriclens.exclude: "true"
+
+  exporter:
+    image: oliver006/redis_exporter:v1.69.0
+    command:
+      - --redis.addr=redis://redis:6379
+    depends_on:
+      - redis
+    expose:
+      - "9121"
+    labels:
+      metriclens.port: "9121"
+      metriclens.path: "/metrics"
+
+  traffic:
+    image: redis:7.4-alpine
+    depends_on:
+      - redis
+    command:
+      - sh
+      - -c
+      - |
+        i=0
+        while true; do
+          i=$$((i + 1))
+          redis-cli -h redis SET demo:last_value "$$i" >/dev/null
+          redis-cli -h redis INCR demo:requests >/dev/null
+          sleep 1
+        done
+    labels:
+      # This helper is only load generation, not a metrics target.
+      metriclens.exclude: "true"
