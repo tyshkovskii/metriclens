@@ -58,7 +58,7 @@ Release tags are published as:
 
 - `latest`: latest published release
 - `<major>.<minor>`: latest patch in a minor release line, for example `0.2`
-- `<major>.<minor>.<patch>`: exact release, for example `0.2.0`
+- `<major>.<minor>.<patch>`: exact release, for example `1.0.0`
 
 Images are published for `linux/amd64` and `linux/arm64`.
 

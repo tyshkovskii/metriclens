@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "MetricLens API",
-    "version": "0.3.0",
+    "version": "1.0.0",
     "description": "Compact observability and retained metric-history APIs for Compose development environments. Timestamps use RFC3339Nano. Metric history is in memory and expires after retention."
   },
   "servers": [{"url": "/"}],

@@ -21,7 +21,10 @@ func TestOpenAPIAndLLMsDiscoveryDocuments(t *testing.T) {
 		t.Fatalf("OpenAPI response = status %d content type %q, want 200/application/json", openAPIResponse.Code, openAPIResponse.Header().Get("Content-Type"))
 	}
 	var document struct {
-		OpenAPI    string                     `json:"openapi"`
+		OpenAPI string `json:"openapi"`
+		Info    struct {
+			Version string `json:"version"`
+		} `json:"info"`
 		Paths      map[string]json.RawMessage `json:"paths"`
 		Components struct {
 			Schemas map[string]json.RawMessage `json:"schemas"`
@@ -32,6 +35,9 @@ func TestOpenAPIAndLLMsDiscoveryDocuments(t *testing.T) {
 	}
 	if !strings.HasPrefix(document.OpenAPI, "3.1.") {
 		t.Fatalf("openapi = %q, want 3.1.x", document.OpenAPI)
+	}
+	if document.Info.Version != Version {
+		t.Fatalf("OpenAPI version = %q, want API version %q", document.Info.Version, Version)
 	}
 	expectedPaths := []string{
 		"/openapi.json", "/llms.txt", "/mcp", "/api/health", "/api/version", "/api/config", "/api/capabilities",
