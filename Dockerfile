@@ -12,7 +12,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # --- Stage 2: build the backend with the frontend embedded ---
-FROM golang:1.26.5-alpine AS build
+FROM golang:1.27.0-alpine AS build
 
 WORKDIR /src/backend
 
