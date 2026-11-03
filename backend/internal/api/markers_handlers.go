@@ -31,7 +31,7 @@ func (s *Server) handleCreateMarker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.currentTime()
-	writeJSON(w, http.StatusCreated, s.markers.create(now, s.effectiveRetention(), request.Name, request.ClientRunID))
+	writeJSON(w, http.StatusCreated, s.markers.create(now, s.effectiveRetention(), request.Name, request.ClientRunID, diagnosis.QualityWarnings(s.targets)))
 }
 
 func (s *Server) handleListMarkers(w http.ResponseWriter, r *http.Request) {
@@ -77,6 +77,10 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	options.BaselineQualityWarnings = from.qualityWarnings
+	if toMarker != nil {
+		options.EndQualityWarnings = toMarker.qualityWarnings
 	}
 	report := diagnosis.BuildWithOptions(s.targets, toTime, toTime.Sub(from.time), limit, options)
 	report.From = markerRef(from.Marker)

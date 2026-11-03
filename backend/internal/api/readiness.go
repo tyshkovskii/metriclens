@@ -12,14 +12,18 @@ import (
 )
 
 const (
-	// DefaultReadinessTimeout is used when readiness callers omit timeout.
-	DefaultReadinessTimeout = time.Second
+	// DefaultReadinessTimeout is used when readiness callers omit timeout. It
+	// spans several default scrape intervals because readiness needs a scrape
+	// that completes after the wait starts.
+	DefaultReadinessTimeout = 30 * time.Second
 	// MaxReadinessTimeout bounds a readiness wait even for untrusted callers.
 	MaxReadinessTimeout = 2 * time.Minute
 	// HTTPWriteTimeout leaves enough time for the longest readiness request to
 	// complete before the production HTTP server writes its response.
-	HTTPWriteTimeout      = MaxReadinessTimeout + 5*time.Second
-	readinessPollInterval = 10 * time.Millisecond
+	HTTPWriteTimeout = MaxReadinessTimeout + 5*time.Second
+	// readinessPollInterval stays short next to the scrape interval a wait
+	// spans, without copying the target list every few milliseconds.
+	readinessPollInterval = 100 * time.Millisecond
 )
 
 type readinessService struct {
@@ -62,9 +66,12 @@ func (s *Server) handleReadiness(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) waitForReadiness(ctx context.Context, services []string, timeout time.Duration) (readinessResponse, error) {
 	started := time.Now()
+	// Earlier scrapes may describe containers that have since stopped or been
+	// recreated, so only a scrape completed after the wait starts counts.
+	scrapedAfter := s.currentTime()
 	result := readinessResponse{Services: []readinessService{}}
 	for {
-		result.Services, result.Ready = s.readinessSnapshot(services)
+		result.Services, result.Ready = s.readinessSnapshot(services, scrapedAfter)
 		if result.Ready || timeout == 0 {
 			break
 		}
@@ -134,7 +141,7 @@ func parseReadinessTimeout(raw string) (time.Duration, error) {
 	return timeout, nil
 }
 
-func (s *Server) readinessSnapshot(services []string) ([]readinessService, bool) {
+func (s *Server) readinessSnapshot(services []string, scrapedAfter time.Time) ([]readinessService, bool) {
 	targets := s.targets.Targets()
 	result := make([]readinessService, 0, len(services))
 	ready := true
@@ -145,7 +152,7 @@ func (s *Server) readinessSnapshot(services []string) ([]readinessService, bool)
 				continue
 			}
 			state.TargetCount++
-			if target.Status == model.TargetStatusUp && successfulScrape(target.LastScrapeAt) {
+			if target.Status == model.TargetStatusUp && scrapedSince(target.LastScrapeAt, scrapedAfter) {
 				state.ReadyTargets++
 			}
 		}
@@ -168,12 +175,12 @@ func (s *Server) readinessSnapshot(services []string) ([]readinessService, bool)
 	return result, ready
 }
 
-func successfulScrape(value string) bool {
-	if value == "" {
-		return false
-	}
-	_, err := time.Parse(time.RFC3339Nano, value)
-	return err == nil
+// scrapedSince reports whether a scrape completed at or after since.
+// LastScrapeAt is truncated to whole seconds, so this comparison can delay
+// readiness but never accepts a scrape that finished before since.
+func scrapedSince(value string, since time.Time) bool {
+	scrapedAt, err := time.Parse(time.RFC3339Nano, value)
+	return err == nil && !scrapedAt.Before(since)
 }
 
 func hasDownTarget(targets []model.Target, service string) bool {

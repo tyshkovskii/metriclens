@@ -6,15 +6,15 @@
 
 - [OpenAPI](/openapi.json): JSON API contract, schemas, limits, examples.
 - [Capabilities](/api/capabilities): runtime timing, features, and response caps.
-- [MCP](/mcp): Streamable HTTP; five tools listed below.
+- [MCP](/mcp): Streamable HTTP; six tools listed below.
 
 ## Agent workflow
 
-1. Start Compose with normal development tools; call `wait_for_stack` (`/api/readiness?service=...`) for explicit services.
+1. Start Compose with normal development tools; call `wait_for_stack` (`/api/readiness?service=...`) for explicit services. Only scrapes completed after the call starts count.
 2. Call `start_experiment` (`POST /api/markers`) to create a named marker immediately before the workload.
 3. Run the workload using your normal tools.
-4. Call `compare_experiment` (`/api/compare?from=...`), filtering to warning,error and a small limit. Use `observe_stack` (`/api/report`) for a current diagnosis.
-5. Request `get_metric_evidence` (batch-series endpoint) only for findings needing investigation.
+4. Call `compare_experiment` (`/api/compare?from=...`), filtering to warning,error and a small limit; changedOnly also drops quality warnings present at the marker. Use `observe_stack` (`/api/report`) for a current diagnosis.
+5. Request `get_metric_evidence` (batch-series endpoint) only for findings needing investigation. `list_metrics` (`/api/targets`, `/api/targets/{targetId}/metrics`) gives target IDs and metric names.
 6. Share a finding's `uiUrl`, resolved against the browser-accessible MetricLens base URL. It opens the target, optional metric, and RFC3339 start/end window.
 
 ## Limits and interpretation

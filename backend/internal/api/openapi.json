@@ -25,7 +25,7 @@
       "post": {
         "operationId": "mcpStreamableHTTP",
         "summary": "Use the Model Context Protocol tool endpoint",
-        "description": "Streamable HTTP MCP JSON-RPC endpoint. Use an MCP client to initialize and discover exactly five bounded, read-only or marker tools; this document intentionally does not duplicate the MCP tool schemas.",
+        "description": "Streamable HTTP MCP JSON-RPC endpoint. Use an MCP client to initialize and discover exactly six bounded, read-only or marker tools; this document intentionally does not duplicate the MCP tool schemas.",
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}}},
         "responses": {
           "200": {"description": "MCP JSON response or stream", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": true}}, "text/event-stream": {"schema": {"type": "string"}}}},
@@ -94,11 +94,11 @@
       "get": {
         "operationId": "getReadiness",
         "summary": "Wait for selected services to be scraped successfully",
-        "description": "At least one service or services query value is required. A service is ready only when all its targets are up and have a valid LastScrapeAt. The default timeout is 1s; the maximum is 2m.",
+        "description": "At least one service or services query value is required. A service is ready only when all its targets are up and have a successful scrape that completed after the request started; earlier scrapes may describe stopped or recreated containers. The default timeout is 30s; the maximum is 2m.",
         "parameters": [
           {"name": "service", "in": "query", "required": false, "style": "form", "explode": true, "schema": {"type": "string"}, "description": "Repeat or comma-separate service names."},
           {"name": "services", "in": "query", "required": false, "style": "form", "explode": true, "schema": {"type": "string"}, "description": "Alias for service."},
-          {"name": "timeout", "in": "query", "required": false, "schema": {"type": "string", "default": "1s", "example": "10s"}, "description": "Non-negative Go duration, capped at 2m."}
+          {"name": "timeout", "in": "query", "required": false, "schema": {"type": "string", "default": "30s", "example": "10s"}, "description": "Non-negative Go duration, capped at 2m. Use more than one scrape interval; a shorter wait can end before any new scrape."}
         ],
         "responses": {
           "200": {"description": "All requested services are ready", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Readiness"}}}},
@@ -128,7 +128,7 @@
       "get": {
         "operationId": "compareMarkers",
         "summary": "Compare retained history from a marker to another marker or now",
-        "description": "from must precede to. The report filter and limit parameters match /api/report.",
+        "description": "from must precede to. The report filter and limit parameters match /api/report. With changedOnly, quality warnings that already existed when the from marker was created are also omitted.",
         "parameters": [
           {"name": "from", "in": "query", "required": true, "schema": {"type": "string"}},
           {"name": "to", "in": "query", "required": false, "schema": {"type": "string"}},
@@ -258,7 +258,7 @@
       "Health": {"type": "object", "required": ["status"], "properties": {"status": {"type": "string", "const": "ok"}}},
       "Version": {"type": "object", "required": ["name", "version"], "properties": {"name": {"type": "string", "const": "metriclens"}, "version": {"type": "string"}}},
       "Config": {"type": "object", "required": ["scrapeIntervalMs", "retentionMs"], "properties": {"scrapeIntervalMs": {"type": "integer", "minimum": 0}, "retentionMs": {"type": "integer", "minimum": 0}}},
-      "ConfigUpdate": {"type": "object", "required": ["scrapeIntervalMs"], "properties": {"scrapeIntervalMs": {"type": "integer", "exclusiveMinimum": 0}}},
+      "ConfigUpdate": {"type": "object", "required": ["scrapeIntervalMs"], "properties": {"scrapeIntervalMs": {"type": "integer", "minimum": 1000}}},
       "Capabilities": {"type": "object", "required": ["name", "version", "scrapeIntervalMs", "retentionMs", "features", "limits", "links"], "properties": {"name": {"type": "string", "const": "metriclens"}, "version": {"type": "string"}, "scrapeIntervalMs": {"type": "integer"}, "retentionMs": {"type": "integer"}, "features": {"type": "array", "items": {"type": "string"}}, "limits": {"$ref": "#/components/schemas/CapabilitiesLimits"}, "links": {"$ref": "#/components/schemas/CapabilitiesLinks"}}},
       "CapabilitiesLimits": {"type": "object", "required": ["reportFindings", "markerFieldChars", "readinessTimeoutMs", "batchMetrics", "batchSeriesPerMetric", "batchSeriesTotal", "batchPointsPerSeries", "batchPointsTotal", "batchDefaultMaxPoints"], "properties": {"reportFindings": {"type": "integer", "example": 50}, "markerFieldChars": {"type": "integer", "example": 128}, "readinessTimeoutMs": {"type": "integer", "example": 120000}, "batchMetrics": {"type": "integer", "example": 10}, "batchSeriesPerMetric": {"type": "integer", "example": 20}, "batchSeriesTotal": {"type": "integer", "example": 50}, "batchPointsPerSeries": {"type": "integer", "example": 200}, "batchPointsTotal": {"type": "integer", "example": 500}, "batchDefaultMaxPoints": {"type": "integer", "example": 100}}},
       "CapabilitiesLinks": {"type": "object", "required": ["openapi", "llms", "mcp"], "properties": {"openapi": {"type": "string", "const": "/openapi.json"}, "llms": {"type": "string", "const": "/llms.txt"}, "mcp": {"type": "string", "const": "/mcp"}}},

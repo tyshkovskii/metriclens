@@ -69,8 +69,13 @@ Use `observe_stack` for a current diagnosis. To evaluate a change:
 wait_for_stack → start_experiment → run workload → compare_experiment → get_metric_evidence
 ```
 
-Keep comparisons small with `warning,error`, `changedOnly: true`, and a low limit.
-Request evidence only for significant findings that need detail.
+`wait_for_stack` counts only scrapes that complete after the call starts, so a
+stopped or recreated container is never reported ready from older data.
+Keep comparisons small with `warning,error`, `changedOnly: true`, and a low limit;
+`changedOnly` also skips quality warnings that already existed at the marker.
+Request evidence only for significant findings that need detail. When no finding
+names the target or metric you need, `list_metrics` returns target IDs and the
+metric names `get_metric_evidence` accepts.
 
 Findings include a relative `uiUrl`: resolve it against your browser-accessible
 MetricLens URL and send it to the human reviewing the result. It opens the target,
@@ -95,8 +100,10 @@ metriclensctl wait --services api,worker --timeout 60s
 metriclensctl start --name checkout --client-run-id run-42
 ./run-integration-test.sh
 metriclensctl compare --from marker-1 --severity warning,error
-metriclensctl evidence --target api-1 --metric http_requests_total --max-points 100
+metriclensctl evidence --target TARGET_ID --metric http_requests_total --max-points 100
 ```
+
+`--target` takes a target ID (the container ID), such as a finding's `evidence.targetId`.
 
 For a reproducible local evaluation, let the CLI run the explicit workload child directly (without a shell):
 

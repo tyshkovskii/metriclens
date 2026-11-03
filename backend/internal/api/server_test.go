@@ -184,6 +184,26 @@ func TestConfigUpdate(t *testing.T) {
 	}
 }
 
+func TestConfigUpdateRejectsIntervalBelowMinimum(t *testing.T) {
+	store := &fakeIntervalTargetStore{}
+	server := NewServer(fakeContainerLister{}, store, Config{ScrapeInterval: 5 * time.Second})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/config", strings.NewReader(`{"scrapeIntervalMs":999}`))
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest || store.interval != 0 {
+		t.Fatalf("status = %d interval = %s, want a sub-second interval rejected", rec.Code, store.interval)
+	}
+
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/config", strings.NewReader(`{"scrapeIntervalMs":1000}`))
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || store.interval != MinScrapeInterval {
+		t.Fatalf("status = %d interval = %s, want the minimum interval accepted", rec.Code, store.interval)
+	}
+}
+
 func TestContainers(t *testing.T) {
 	expected := []model.DiscoveredContainer{
 		{
@@ -873,6 +893,7 @@ func TestReadinessReadyForSelectedServices(t *testing.T) {
 		{ID: "worker-1", ServiceName: "worker", Status: model.TargetStatusUp, LastScrapeAt: "2026-06-06T12:00:00Z"},
 		{ID: "api-1", ServiceName: "api", Status: model.TargetStatusUp, LastScrapeAt: "2026-06-06T12:00:00Z"},
 	}}, Config{})
+	server.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC) }
 	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/readiness?service=worker&service=api", nil)
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, request)
@@ -905,6 +926,50 @@ func TestReadinessTimeoutAndMissingService(t *testing.T) {
 	}
 	if body.Ready || len(body.Services) != 1 || body.Services[0].State != "missing" {
 		t.Fatalf("readiness = %#v, want missing timeout", body)
+	}
+}
+
+// scrapeDuringWaitStore serves stale targets for the first stalePolls
+// readiness polls and fresh ones afterward, like a scrape finishing mid-wait.
+type scrapeDuringWaitStore struct {
+	fakeTargetStore
+	fresh      []model.Target
+	stalePolls int
+	polls      int
+}
+
+func (s *scrapeDuringWaitStore) Targets() []model.Target {
+	s.polls++
+	if s.polls <= s.stalePolls {
+		return s.targets
+	}
+	return s.fresh
+}
+
+func TestReadinessCountsOnlyScrapesAfterTheWaitStarts(t *testing.T) {
+	stale := model.Target{ID: "worker-1", ServiceName: "worker", Status: model.TargetStatusUp, LastScrapeAt: "2026-06-06T12:00:00Z"}
+	fresh := stale
+	fresh.LastScrapeAt = "2026-06-06T12:00:01Z"
+	store := &scrapeDuringWaitStore{fakeTargetStore: fakeTargetStore{targets: []model.Target{stale}}, fresh: []model.Target{fresh}, stalePolls: 2}
+	server := NewServer(fakeContainerLister{}, store, Config{})
+	server.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 500_000_000, time.UTC) }
+
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/readiness?service=worker&timeout=0", nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	var body readinessResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode readiness: %v", err)
+	}
+	if response.Code != http.StatusRequestTimeout || body.Ready || len(body.Services) != 1 || body.Services[0].State != "pending" {
+		t.Fatalf("readiness = status %d %#v, want a scrape from before the wait to stay pending", response.Code, body)
+	}
+
+	request = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/readiness?service=worker&timeout=5s", nil)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || store.polls != 3 {
+		t.Fatalf("status = %d after %d polls, want ready once a later scrape arrives", response.Code, store.polls)
 	}
 }
 
@@ -972,6 +1037,48 @@ func TestCompareValidatesMarkersAndLimit(t *testing.T) {
 		server.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest && rec.Code != http.StatusNotFound {
 			t.Fatalf("path %q status = %d, want validation error", path, rec.Code)
+		}
+	}
+}
+
+func TestCompareChangedOnlyOmitsQualityWarningsPresentAtMarker(t *testing.T) {
+	// Counters without the _total suffix produce one quality warning each.
+	counter := func(name string) model.MetricFamily {
+		return model.MetricFamily{Name: name, Type: model.MetricTypeCounter, HasHelp: true, HasType: true, Samples: []model.MetricSample{{Metric: name, Labels: map[string]string{}, Value: 1}}}
+	}
+	store := &fakeTargetStore{
+		targets: []model.Target{{ID: "api-1", ServiceName: "api", Status: model.TargetStatusUp}},
+		metrics: model.TargetMetricsResponse{Families: []model.MetricFamily{counter("legacy_requests")}},
+		found:   true,
+	}
+	server := NewServer(fakeContainerLister{}, store, Config{Retention: time.Hour})
+	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+	server.now = func() time.Time { return now }
+	marker := createMarker(t, server)
+	store.metrics.Families = append(store.metrics.Families, counter("new_jobs"))
+	now = now.Add(time.Minute)
+	end := createMarker(t, server)
+	store.metrics.Families = append(store.metrics.Families, counter("late_events"))
+	now = now.Add(time.Minute)
+
+	for query, want := range map[string]string{
+		"&changedOnly=true":              "late_events,new_jobs",
+		"&changedOnly=true&to=" + end.ID: "new_jobs",
+		"":                               "late_events,legacy_requests,new_jobs",
+	} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/compare?severity=warning&from="+marker.ID+query, nil)
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, req)
+		var report diagnosis.Report
+		if err := json.NewDecoder(rec.Body).Decode(&report); err != nil {
+			t.Fatalf("decode compare: %v", err)
+		}
+		metrics := make([]string, 0, len(report.Findings))
+		for _, finding := range report.Findings {
+			metrics = append(metrics, finding.Metric)
+		}
+		if got := strings.Join(metrics, ","); rec.Code != http.StatusOK || got != want {
+			t.Fatalf("compare%s = status %d warnings %q, want %q", query, rec.Code, got, want)
 		}
 	}
 }

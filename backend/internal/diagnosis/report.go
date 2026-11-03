@@ -96,6 +96,36 @@ type BuildOptions struct {
 	Severities  []string
 	Services    []string
 	ChangedOnly bool
+	// BaselineQualityWarnings holds QualityWarnings captured at a comparison's
+	// starting point; ChangedOnly omits quality warnings that were already there.
+	BaselineQualityWarnings map[string]struct{}
+	// EndQualityWarnings, when non-nil, holds QualityWarnings captured at a
+	// comparison's end marker; ChangedOnly omits warnings that appeared later.
+	EndQualityWarnings map[string]struct{}
+}
+
+// QualityWarnings captures the identities of current instrumentation warnings
+// so a later comparison can report only the ones that appeared afterward.
+func QualityWarnings(source Source) map[string]struct{} {
+	warnings := map[string]struct{}{}
+	for _, target := range source.Targets() {
+		metrics, ok := source.TargetMetrics(target.ID)
+		if !ok {
+			continue
+		}
+		for _, issue := range quality.Analyze(metrics.Families) {
+			if issue.Severity == model.MetricQualityWarning {
+				warnings[qualityWarningKey(target.ServiceName, issue)] = struct{}{}
+			}
+		}
+	}
+	return warnings
+}
+
+// qualityWarningKey uses the service rather than the target ID so a recreated
+// container does not make an existing warning look new.
+func qualityWarningKey(service string, issue model.MetricQualityIssue) string {
+	return strings.Join([]string{service, issue.Metric, issue.Message}, "\x00")
 }
 
 // Build creates a compact, deterministic report over the exact requested
@@ -169,6 +199,14 @@ func BuildWithOptions(source Source, now time.Time, window time.Duration, limit 
 		for _, issue := range quality.Analyze(metrics.Families) {
 			if issue.Severity != model.MetricQualityWarning {
 				continue
+			}
+			if options.ChangedOnly {
+				key := qualityWarningKey(target.ServiceName, issue)
+				_, existed := options.BaselineQualityWarnings[key]
+				_, atEnd := options.EndQualityWarnings[key]
+				if existed || (options.EndQualityWarnings != nil && !atEnd) {
+					continue
+				}
 			}
 			report.Findings = append(report.Findings, Finding{
 				Severity:   "warning",
