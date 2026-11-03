@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,7 +45,12 @@ func main() {
 		port = "8080"
 	}
 
-	go simulate()
+	// Seeded faults let an agent experiment produce a known regression:
+	// ERROR_RATE is the share of 500 responses and LATENCY_MS is added to
+	// every request. The defaults reproduce normal traffic.
+	errorRate := envFloat("ERROR_RATE", 0.07)
+	addedLatency := envFloat("LATENCY_MS", 0) / 1000
+	go simulate(errorRate, addedLatency)
 
 	http.HandleFunc("/metrics", handleMetrics)
 	http.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
@@ -57,8 +63,20 @@ func main() {
 	}
 }
 
+func envFloat(name string, fallback float64) float64 {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil || value < 0 {
+		log.Fatalf("%s must be a non-negative number, got %q", name, raw)
+	}
+	return value
+}
+
 // simulate generates fake request traffic once per second.
-func simulate() {
+func simulate(errorRate, addedLatency float64) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -68,12 +86,12 @@ func simulate() {
 		for n := 5 + rng.Intn(20); n > 0; n-- {
 			route := routes[rng.Intn(len(routes))]
 			status := "200"
-			if rng.Float64() < 0.07 {
+			if rng.Float64() < errorRate {
 				status = "500"
 			}
 			requests[requestKey{"GET", route, status}]++
 
-			latency := rng.ExpFloat64() * 0.2 // mean ~200ms
+			latency := addedLatency + rng.ExpFloat64()*0.2 // mean ~200ms plus any seeded latency
 			durationSum += latency
 			totalCount++
 			for i, ub := range bucketBounds {

@@ -1098,6 +1098,42 @@ func createMarker(t *testing.T, server *Server) Marker {
 	return marker
 }
 
+func TestCompareResolvesBaselineWindow(t *testing.T) {
+	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{Retention: time.Hour})
+	now := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+	server.now = func() time.Time { return now }
+	earlier := createMarker(t, server)
+	now = now.Add(time.Minute)
+	from := createMarker(t, server)
+	now = now.Add(2 * time.Minute)
+
+	for query, wantStart := range map[string]string{
+		"":                            "2026-06-06T11:59:00Z",
+		"&baselineFrom=" + earlier.ID: earlier.CreatedAt,
+	} {
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/compare?from="+from.ID+query, nil))
+		var report diagnosis.Report
+		if err := json.NewDecoder(rec.Body).Decode(&report); err != nil {
+			t.Fatalf("decode compare: %v", err)
+		}
+		if rec.Code != http.StatusOK || report.Baseline == nil || report.Baseline.Start != wantStart || report.Baseline.End != from.CreatedAt {
+			t.Fatalf("compare%s = status %d baseline %#v, want %s until the from marker", query, rec.Code, report.Baseline, wantStart)
+		}
+	}
+	for query, want := range map[string]int{
+		"&baselineFrom=missing":     http.StatusNotFound,
+		"&baselineTo=" + earlier.ID: http.StatusBadRequest,
+		"&baselineFrom=" + from.ID:  http.StatusBadRequest,
+	} {
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/compare?from="+from.ID+query, nil))
+		if rec.Code != want {
+			t.Fatalf("compare%s status = %d, want %d", query, rec.Code, want)
+		}
+	}
+}
+
 func TestUnknownAPIPathReturnsJSONNotFound(t *testing.T) {
 	server := NewServer(fakeContainerLister{}, fakeTargetStore{}, Config{})
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/missing", nil)

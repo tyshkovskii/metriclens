@@ -275,9 +275,11 @@ func runStart(ctx context.Context, client *metricLensClient, args []string, stdo
 }
 
 func runCompare(ctx context.Context, client *metricLensClient, args []string, stdout, stderr io.Writer) int {
-	fs := newCommandFlagSet("compare", stderr, "usage: metriclensctl compare --from MARKER [--to MARKER] [--limit N] [--severity SEVERITY] [--services SERVICE] [--changed-only]")
+	fs := newCommandFlagSet("compare", stderr, "usage: metriclensctl compare --from MARKER [--to MARKER] [--baseline-from MARKER [--baseline-to MARKER]] [--limit N] [--severity SEVERITY] [--services SERVICE] [--changed-only]")
 	from := fs.String("from", "", "required starting marker")
 	to := fs.String("to", "", "optional ending marker")
+	baselineFrom := fs.String("baseline-from", "", "optional marker starting a baseline run of the same workload")
+	baselineTo := fs.String("baseline-to", "", "optional marker ending the baseline run")
 	limit := fs.Int("limit", 0, "maximum findings")
 	var severities, services csvValues
 	fs.Var(&severities, "severity", "finding severity filter")
@@ -299,6 +301,12 @@ func runCompare(ctx context.Context, client *metricLensClient, args []string, st
 	query.Set("from", *from)
 	if *to != "" {
 		query.Set("to", *to)
+	}
+	if *baselineFrom != "" {
+		query.Set("baselineFrom", *baselineFrom)
+	}
+	if *baselineTo != "" {
+		query.Set("baselineTo", *baselineTo)
 	}
 	body, err := client.get(ctx, "/api/compare", query)
 	if err != nil {

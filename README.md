@@ -71,9 +71,18 @@ wait_for_stack → start_experiment → run workload → compare_experiment → 
 
 `wait_for_stack` counts only scrapes that complete after the call starts, so a
 stopped or recreated container is never reported ready from older data.
+Comparisons add a verdict per HTTP request counter (`error_ratio`, the share of
+5xx or gRPC server errors) and per histogram (`latency_p95`): `regressed` (a
+warning), `improved`, `unchanged`, or `inconclusive` when either window has
+fewer than 50 requests or observations. By default they compare with the
+equal-length window before the marker, which suits steady background traffic.
+For a test workload, run it once on the old code between two markers and pass
+them as `baselineFrom`/`baselineTo`. A verdict needs a significant change
+(two-proportion z-test of 3) that is also large enough to matter.
+
 Keep comparisons small with `warning,error`, `changedOnly: true`, and a low limit;
-`changedOnly` also skips quality warnings that already existed at the marker.
-Request evidence only for significant findings that need detail. When no finding
+`changedOnly` also skips unchanged verdicts and quality warnings that already
+existed at the marker. Request evidence only for significant findings that need detail. When no finding
 names the target or metric you need, `list_metrics` returns target IDs and the
 metric names `get_metric_evidence` accepts.
 
