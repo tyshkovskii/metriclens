@@ -26,8 +26,8 @@ the human must use an address reachable from their browser.
 1. Start the stack with normal development tools.
 2. Call `wait_for_stack` with the explicit service names, such as `api` and
    `worker`. Only scrapes that complete after the call starts count, so even a
-   ready stack takes up to one scrape interval to confirm. Inspect readiness
-   failures before continuing.
+   ready stack takes about one scrape interval to confirm; use a timeout well
+   above it. Inspect readiness failures before continuing.
 3. Call `start_experiment` with a short name and optional `clientRunId`.
 4. Run a focused workload or test through normal development tools.
 5. Call `compare_experiment` with the returned marker ID, a small `limit`, and

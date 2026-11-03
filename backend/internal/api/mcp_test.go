@@ -106,7 +106,7 @@ func TestMCPToolsThroughOfficialClient(t *testing.T) {
 		}
 	}
 
-	waitResult := callMCPTool(t, session, "wait_for_stack", map[string]any{"services": []string{"api"}, "timeoutMs": 0})
+	waitResult := callMCPTool(t, session, "wait_for_stack", map[string]any{"services": []string{"api"}, "timeoutMs": 1000})
 	if waitResult.IsError {
 		t.Fatalf("wait_for_stack result = %#v, want success", waitResult)
 	}

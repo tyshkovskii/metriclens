@@ -99,6 +99,9 @@ type BuildOptions struct {
 	// BaselineQualityWarnings holds QualityWarnings captured at a comparison's
 	// starting point; ChangedOnly omits quality warnings that were already there.
 	BaselineQualityWarnings map[string]struct{}
+	// EndQualityWarnings, when non-nil, holds QualityWarnings captured at a
+	// comparison's end marker; ChangedOnly omits warnings that appeared later.
+	EndQualityWarnings map[string]struct{}
 }
 
 // QualityWarnings captures the identities of current instrumentation warnings
@@ -197,8 +200,13 @@ func BuildWithOptions(source Source, now time.Time, window time.Duration, limit 
 			if issue.Severity != model.MetricQualityWarning {
 				continue
 			}
-			if _, existed := options.BaselineQualityWarnings[qualityWarningKey(target.ServiceName, issue)]; existed && options.ChangedOnly {
-				continue
+			if options.ChangedOnly {
+				key := qualityWarningKey(target.ServiceName, issue)
+				_, existed := options.BaselineQualityWarnings[key]
+				_, atEnd := options.EndQualityWarnings[key]
+				if existed || (options.EndQualityWarnings != nil && !atEnd) {
+					continue
+				}
 			}
 			report.Findings = append(report.Findings, Finding{
 				Severity:   "warning",

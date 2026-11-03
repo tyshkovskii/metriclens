@@ -195,6 +195,13 @@ func TestConfigUpdateRejectsIntervalBelowMinimum(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || store.interval != 0 {
 		t.Fatalf("status = %d interval = %s, want a sub-second interval rejected", rec.Code, store.interval)
 	}
+
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/config", strings.NewReader(`{"scrapeIntervalMs":1000}`))
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || store.interval != MinScrapeInterval {
+		t.Fatalf("status = %d interval = %s, want the minimum interval accepted", rec.Code, store.interval)
+	}
 }
 
 func TestContainers(t *testing.T) {
@@ -1050,10 +1057,14 @@ func TestCompareChangedOnlyOmitsQualityWarningsPresentAtMarker(t *testing.T) {
 	marker := createMarker(t, server)
 	store.metrics.Families = append(store.metrics.Families, counter("new_jobs"))
 	now = now.Add(time.Minute)
+	end := createMarker(t, server)
+	store.metrics.Families = append(store.metrics.Families, counter("late_events"))
+	now = now.Add(time.Minute)
 
 	for query, want := range map[string]string{
-		"&changedOnly=true": "new_jobs",
-		"":                  "legacy_requests,new_jobs",
+		"&changedOnly=true":              "late_events,new_jobs",
+		"&changedOnly=true&to=" + end.ID: "new_jobs",
+		"":                               "late_events,legacy_requests,new_jobs",
 	} {
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/compare?severity=warning&from="+marker.ID+query, nil)
 		rec := httptest.NewRecorder()

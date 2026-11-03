@@ -79,6 +79,9 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	options.BaselineQualityWarnings = from.qualityWarnings
+	if toMarker != nil {
+		options.EndQualityWarnings = toMarker.qualityWarnings
+	}
 	report := diagnosis.BuildWithOptions(s.targets, toTime, toTime.Sub(from.time), limit, options)
 	report.From = markerRef(from.Marker)
 	if toMarker != nil {

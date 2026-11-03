@@ -238,6 +238,9 @@ func (s *Server) compareExperiment(_ context.Context, _ *mcp.CallToolRequest, in
 		return nil, diagnosis.Report{}, mcpToolError(err)
 	}
 	options.BaselineQualityWarnings = from.qualityWarnings
+	if toMarker != nil {
+		options.EndQualityWarnings = toMarker.qualityWarnings
+	}
 	report := diagnosis.BuildWithOptions(s.targets, toTime, toTime.Sub(from.time), limit, options)
 	report.From = markerRef(from.Marker)
 	if toMarker != nil {

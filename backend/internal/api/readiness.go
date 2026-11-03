@@ -20,8 +20,10 @@ const (
 	MaxReadinessTimeout = 2 * time.Minute
 	// HTTPWriteTimeout leaves enough time for the longest readiness request to
 	// complete before the production HTTP server writes its response.
-	HTTPWriteTimeout      = MaxReadinessTimeout + 5*time.Second
-	readinessPollInterval = 10 * time.Millisecond
+	HTTPWriteTimeout = MaxReadinessTimeout + 5*time.Second
+	// readinessPollInterval stays short next to the scrape interval a wait
+	// spans, without copying the target list every few milliseconds.
+	readinessPollInterval = 100 * time.Millisecond
 )
 
 type readinessService struct {
