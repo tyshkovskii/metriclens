@@ -17,6 +17,9 @@ type Marker struct {
 type storedMarker struct {
 	Marker
 	time time.Time
+	// qualityWarnings are the instrumentation warnings present at creation,
+	// so changedOnly comparisons can omit them.
+	qualityWarnings map[string]struct{}
 }
 
 type markerStore struct {
@@ -29,14 +32,15 @@ func newMarkerStore() *markerStore {
 	return &markerStore{markers: map[string]storedMarker{}}
 }
 
-func (m *markerStore) create(now time.Time, retention time.Duration, name, clientRunID string) Marker {
+func (m *markerStore) create(now time.Time, retention time.Duration, name, clientRunID string, qualityWarnings map[string]struct{}) Marker {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.expireLocked(now, retention)
 	m.nextID++
 	marker := storedMarker{
-		Marker: Marker{ID: fmt.Sprintf("marker-%d", m.nextID), CreatedAt: now.UTC().Format(time.RFC3339Nano), Name: name, ClientRunID: clientRunID},
-		time:   now.UTC(),
+		Marker:          Marker{ID: fmt.Sprintf("marker-%d", m.nextID), CreatedAt: now.UTC().Format(time.RFC3339Nano), Name: name, ClientRunID: clientRunID},
+		time:            now.UTC(),
+		qualityWarnings: qualityWarnings,
 	}
 	m.markers[marker.ID] = marker
 	return marker.Marker

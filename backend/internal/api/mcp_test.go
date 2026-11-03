@@ -25,6 +25,16 @@ func TestMCPToolsThroughOfficialClient(t *testing.T) {
 	store := &fakeBatchTargetStore{
 		fakeTargetStore: fakeTargetStore{
 			targets: []model.Target{{ID: "api-1", ServiceName: "api", Status: model.TargetStatusUp, LastScrapeAt: now.Format(time.RFC3339)}},
+			metrics: model.TargetMetricsResponse{Families: []model.MetricFamily{{
+				Name: "http_request_duration_seconds", Type: model.MetricTypeHistogram, HasHelp: true, HasType: true,
+				Samples: []model.MetricSample{
+					{Metric: "http_request_duration_seconds_bucket", Labels: map[string]string{"le": "0.1"}, Value: 1},
+					{Metric: "http_request_duration_seconds_bucket", Labels: map[string]string{"le": "+Inf"}, Value: 2},
+					{Metric: "http_request_duration_seconds_sum", Labels: map[string]string{}, Value: 0.3},
+					{Metric: "http_request_duration_seconds_count", Labels: map[string]string{}, Value: 2},
+				},
+			}}},
+			found: true,
 		},
 		batch: []model.Series{{
 			TargetID: "api-1", Metric: "http_requests_total", Labels: map[string]string{"status": "500"},
@@ -63,8 +73,8 @@ func TestMCPToolsThroughOfficialClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 5 {
-		t.Fatalf("tool count = %d, want exactly five", len(tools.Tools))
+	if len(tools.Tools) != 6 {
+		t.Fatalf("tool count = %d, want exactly six", len(tools.Tools))
 	}
 	names := make([]string, 0, len(tools.Tools))
 	for _, tool := range tools.Tools {
@@ -80,12 +90,12 @@ func TestMCPToolsThroughOfficialClient(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	if !reflect.DeepEqual(names, []string{"compare_experiment", "get_metric_evidence", "observe_stack", "start_experiment", "wait_for_stack"}) {
+	if !reflect.DeepEqual(names, []string{"compare_experiment", "get_metric_evidence", "list_metrics", "observe_stack", "start_experiment", "wait_for_stack"}) {
 		t.Fatalf("tool names = %#v, want exact names", names)
 	}
 	for _, tool := range tools.Tools {
 		switch tool.Name {
-		case "observe_stack", "wait_for_stack", "compare_experiment", "get_metric_evidence":
+		case "observe_stack", "wait_for_stack", "compare_experiment", "get_metric_evidence", "list_metrics":
 			if !tool.Annotations.ReadOnlyHint {
 				t.Errorf("tool %q ReadOnlyHint = false, want true", tool.Name)
 			}
@@ -162,9 +172,22 @@ func TestMCPToolsThroughOfficialClient(t *testing.T) {
 		}
 	}
 
+	catalogResult := callMCPTool(t, session, "list_metrics", map[string]any{"services": []string{"api"}, "query": "DURATION", "limit": 2})
+	var catalog listMetricsOutput
+	decodeMCPStructured(t, catalogResult, &catalog)
+	if len(catalog.Targets) != 1 || catalog.Targets[0].TargetID != "api-1" || catalog.Omitted != 1 || len(catalog.Metrics) != 2 ||
+		catalog.Metrics[0].Metric != "http_request_duration_seconds_bucket" || catalog.Metrics[0].Series != 2 || catalog.Metrics[0].Type != model.MetricTypeHistogram ||
+		catalog.Metrics[1].Metric != "http_request_duration_seconds_count" {
+		t.Fatalf("catalog = %#v, want two sorted histogram sample names for api-1 and one omitted", catalog)
+	}
+
 	invalidResult := callMCPTool(t, session, "wait_for_stack", map[string]any{})
 	if !invalidResult.IsError {
 		t.Fatalf("invalid wait result = %#v, want IsError", invalidResult)
+	}
+	invalidCatalog := callMCPTool(t, session, "list_metrics", map[string]any{"limit": MaxCatalogMetrics + 1})
+	if !invalidCatalog.IsError {
+		t.Fatalf("invalid catalog result = %#v, want IsError", invalidCatalog)
 	}
 	invalidEvidence := callMCPTool(t, session, "get_metric_evidence", map[string]any{"metrics": []string{"up"}})
 	if !invalidEvidence.IsError {

@@ -13,7 +13,7 @@ services:
   metriclens:
     image: tyshkovskii/metriclens:latest
     ports:
-      - "9999:9999"
+      - "127.0.0.1:9999:9999"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 ```

@@ -23,6 +23,10 @@ import (
 
 const Version = "1.0.0"
 
+// MinScrapeInterval bounds runtime cadence changes so an API caller cannot make
+// the scraper poll every service and the Docker API continuously.
+const MinScrapeInterval = time.Second
+
 // Config is the effective runtime configuration, exposed to the frontend via
 // /api/config so UI timing (live window, poll cadence, staleness) follows the
 // backend settings instead of hardcoding their defaults.
@@ -141,13 +145,14 @@ func (s *Server) handleConfigUpdate(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		ScrapeIntervalMs int64 `json:"scrapeIntervalMs"`
 	}
+	invalidInterval := fmt.Sprintf("scrapeIntervalMs must be an integer of at least %d", MinScrapeInterval.Milliseconds())
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		writeError(w, http.StatusBadRequest, "scrapeIntervalMs must be a positive integer")
+		writeError(w, http.StatusBadRequest, invalidInterval)
 		return
 	}
 	maxIntervalMs := int64(^uint64(0)>>1) / int64(time.Millisecond)
-	if request.ScrapeIntervalMs <= 0 || request.ScrapeIntervalMs > maxIntervalMs {
-		writeError(w, http.StatusBadRequest, "scrapeIntervalMs must be a positive integer")
+	if request.ScrapeIntervalMs < MinScrapeInterval.Milliseconds() || request.ScrapeIntervalMs > maxIntervalMs {
+		writeError(w, http.StatusBadRequest, invalidInterval)
 		return
 	}
 
