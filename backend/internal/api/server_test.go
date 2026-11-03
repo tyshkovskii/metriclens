@@ -118,8 +118,8 @@ func TestVersion(t *testing.T) {
 	if body["name"] != "metriclens" {
 		t.Fatalf("name = %q, want metriclens", body["name"])
 	}
-	if Version != "1.0.0" || body["version"] != Version {
-		t.Fatalf("version = %q (constant %q), want 1.0.0", body["version"], Version)
+	if Version != "1.1.0" || body["version"] != Version {
+		t.Fatalf("version = %q (constant %q), want 1.1.0", body["version"], Version)
 	}
 }
 
