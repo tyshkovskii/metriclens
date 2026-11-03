@@ -14,7 +14,7 @@ services:
       metriclens_RETENTION: 15m
 
   pushgateway:
-    image: prom/pushgateway:v1.11.4
+    image: prom/pushgateway:v1.11.5
     expose:
       - "9091"
     labels:
