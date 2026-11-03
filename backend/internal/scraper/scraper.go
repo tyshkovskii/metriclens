@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"sort"
 	"strings"
@@ -52,6 +53,12 @@ type retentionProvider interface {
 	Retention() time.Duration
 }
 
+// containerExitInspector is implemented by Docker discovery so a target that
+// disappears can be reported with how its container ended.
+type containerExitInspector interface {
+	ContainerExit(ctx context.Context, id string) (string, bool)
+}
+
 type Scraper struct {
 	containers      ContainerLister
 	prober          TargetProber
@@ -61,6 +68,10 @@ type Scraper struct {
 	intervalUpdates chan struct{}
 	now             func() time.Time
 	retention       time.Duration
+	// scraped holds history identities with at least one successful scrape,
+	// to tell an uninstrumented service from one whose endpoint failed.
+	// Only RunOnce uses it.
+	scraped map[string]struct{}
 
 	mu         sync.RWMutex
 	targets    map[string]model.Target
@@ -90,6 +101,7 @@ func New(containers ContainerLister, prober TargetProber, client HTTPClient, ser
 		intervalUpdates: make(chan struct{}, 1),
 		now:             time.Now,
 		retention:       retention,
+		scraped:         map[string]struct{}{},
 		targets:         map[string]model.Target{},
 		families:        map[string][]model.MetricFamily{},
 		historyIDs:      map[string]string{},
@@ -172,10 +184,14 @@ func (s *Scraper) RunOnce(ctx context.Context) error {
 			target = scrapedTarget
 			if ok {
 				nextFamilies[target.ID] = families
+				s.scraped[target.HistoryID] = struct{}{}
 			}
 		}
+		_, everScraped := s.scraped[target.HistoryID]
+		target.NoMetricsEndpoint = target.URL == "" && !everScraped
 		nextTargets[target.ID] = target
 	}
+	exits := s.exitReasons(ctx, nextTargets)
 
 	s.mu.Lock()
 	for targetID, families := range s.families {
@@ -193,7 +209,7 @@ func (s *Scraper) RunOnce(ctx context.Context) error {
 			delete(s.families, targetID)
 		}
 	}
-	s.recordLifecycleEventsLocked(nextTargets, s.now().UTC())
+	s.recordLifecycleEventsLocked(nextTargets, exits, s.now().UTC())
 	s.targets = nextTargets
 	s.historyIDs = nextHistoryIDs
 	s.lastError = nil
@@ -264,7 +280,35 @@ func (s *Scraper) LifecycleEvents(start, end time.Time) []model.LifecycleEvent {
 	return result
 }
 
-func (s *Scraper) recordLifecycleEventsLocked(next map[string]model.Target, at time.Time) {
+// exitReasons explains targets that left discovery, keyed by history
+// identity, when their container still exists and has stopped. It inspects
+// only disappeared targets, so steady scrapes make no extra Docker calls.
+func (s *Scraper) exitReasons(ctx context.Context, next map[string]model.Target) map[string]string {
+	inspector, ok := s.containers.(containerExitInspector)
+	if !ok {
+		return nil
+	}
+	present := make(map[string]struct{}, len(next))
+	for targetID, target := range next {
+		present[targetHistoryID(targetID, target)] = struct{}{}
+	}
+	s.mu.RLock()
+	previous := maps.Clone(s.targets)
+	s.mu.RUnlock()
+	reasons := map[string]string{}
+	for targetID, target := range previous {
+		identity := targetHistoryID(targetID, target)
+		if _, ok := present[identity]; ok {
+			continue
+		}
+		if reason, ok := inspector.ContainerExit(ctx, targetID); ok {
+			reasons[identity] = reason
+		}
+	}
+	return reasons
+}
+
+func (s *Scraper) recordLifecycleEventsLocked(next map[string]model.Target, exits map[string]string, at time.Time) {
 	previous := make(map[string]model.Target, len(s.targets))
 	for targetID, target := range s.targets {
 		previous[targetHistoryID(targetID, target)] = target
@@ -318,6 +362,10 @@ func (s *Scraper) recordLifecycleEventsLocked(next map[string]model.Target, at t
 		if _, ok := seen[identity]; ok {
 			continue
 		}
+		reason := target.LastError
+		if exit, ok := exits[identity]; ok {
+			reason = exit
+		}
 		s.events = append(s.events, model.LifecycleEvent{
 			At:            at.Format(time.RFC3339Nano),
 			Kind:          model.LifecycleEventDisappeared,
@@ -325,7 +373,7 @@ func (s *Scraper) recordLifecycleEventsLocked(next map[string]model.Target, at t
 			ServiceName:   target.ServiceName,
 			ContainerName: target.ContainerName,
 			From:          target.Status,
-			Error:         target.LastError,
+			Error:         reason,
 			HistoryID:     identity,
 		})
 	}

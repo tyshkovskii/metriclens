@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -17,6 +18,7 @@ const (
 	composeProjectLabel = "com.docker.compose.project"
 	composeServiceLabel = "com.docker.compose.service"
 	composeNumberLabel  = "com.docker.compose.container-number"
+	composeOneOffLabel  = "com.docker.compose.oneoff"
 	excludeLabel        = "metriclens.exclude"
 )
 
@@ -27,6 +29,7 @@ type DockerDiscovery struct {
 
 type dockerClient interface {
 	ContainerList(context.Context, client.ContainerListOptions) (client.ContainerListResult, error)
+	ContainerInspect(context.Context, string, client.ContainerInspectOptions) (client.ContainerInspectResult, error)
 }
 
 func NewDockerDiscovery() (*DockerDiscovery, error) {
@@ -56,6 +59,55 @@ func (d *DockerDiscovery) ListContainers(ctx context.Context) ([]model.Discovere
 		discovered = append(discovered, FromDockerContainer(c))
 	}
 	return discovered, nil
+}
+
+// ContainerExit describes how a container that left discovery ended, such as
+// "container exited with code 137, OOM killed". ok is false while it runs or
+// once it has been removed, as when Compose recreates it.
+func (d *DockerDiscovery) ContainerExit(ctx context.Context, id string) (string, bool) {
+	result, err := d.client.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+	if err != nil || result.Container.State == nil {
+		return "", false
+	}
+	state := result.Container.State
+	code := fmt.Sprintf("code %d", state.ExitCode)
+	if state.OOMKilled {
+		code += ", OOM killed"
+	}
+	switch state.Status {
+	case container.StateExited, container.StateDead:
+		return "container exited with " + code, true
+	case container.StateRestarting:
+		return "container is restarting after exiting with " + code, true
+	case container.StateCreated, container.StateRunning, container.StatePaused, container.StateRemoving:
+		return "", false
+	}
+	return "", false
+}
+
+// StoppedServices explains requested Compose services in the discovery scope
+// whose containers are not running, keyed by service, so readiness can report
+// how a service stopped instead of only that it is missing.
+func (d *DockerDiscovery) StoppedServices(ctx context.Context, services []string) (map[string]string, error) {
+	result, err := d.client.ContainerList(ctx, client.ContainerListOptions{All: true})
+	if err != nil {
+		return nil, err
+	}
+	composeProject := d.selfComposeProject(result.Items)
+	stopped := map[string]string{}
+	for _, c := range result.Items {
+		service := c.Labels[composeServiceLabel]
+		// One-off `docker compose run` containers share the service label but
+		// say nothing about the service's own containers.
+		oneOff := c.Labels[composeOneOffLabel] == "True"
+		if c.State == container.StateRunning || oneOff || !slices.Contains(services, service) || d.excluded(c) || (composeProject != "" && c.Labels[composeProjectLabel] != composeProject) {
+			continue
+		}
+		if reason, ok := d.ContainerExit(ctx, c.ID); ok {
+			stopped[service] = reason
+		}
+	}
+	return stopped, nil
 }
 
 // selfComposeProject identifies the Compose project that owns MetricLens when

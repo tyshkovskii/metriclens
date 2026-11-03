@@ -20,6 +20,9 @@ type Target struct {
 	LastScrapeAt       string       `json:"lastScrapeAt,omitempty"`
 	LastScrapeDuration string       `json:"lastScrapeDuration,omitempty"`
 	DiscoveredAt       string       `json:"discoveredAt"`
+	// NoMetricsEndpoint marks a running container where no metrics endpoint
+	// has ever been found, as opposed to one whose endpoint stopped working.
+	NoMetricsEndpoint bool `json:"noMetricsEndpoint,omitempty"`
 }
 
 type TargetMetricsResponse struct {

@@ -1159,3 +1159,30 @@ func TestUnknownAPIPathReturnsJSONNotFound(t *testing.T) {
 		t.Fatalf("error = %q, want api endpoint not found", body["error"])
 	}
 }
+
+type stoppedContainerLister struct {
+	fakeContainerLister
+	stopped map[string]string
+}
+
+func (f stoppedContainerLister) StoppedServices(context.Context, []string) (map[string]string, error) {
+	return f.stopped, nil
+}
+
+func TestReadinessExplainsStoppedServices(t *testing.T) {
+	lister := stoppedContainerLister{stopped: map[string]string{"worker": "container exited with code 1"}}
+	server := NewServer(lister, fakeTargetStore{}, Config{})
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/readiness?service=worker,api&timeout=0", nil))
+	var body readinessResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode readiness: %v", err)
+	}
+	states := map[string]string{}
+	for _, service := range body.Services {
+		states[service.Service] = service.State + " " + service.Reason
+	}
+	if response.Code != http.StatusRequestTimeout || states["worker"] != "stopped container exited with code 1" || states["api"] != "missing " {
+		t.Fatalf("readiness = %#v, want stopped worker with its exit reason and missing api", states)
+	}
+}

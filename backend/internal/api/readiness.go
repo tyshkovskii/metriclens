@@ -32,6 +32,13 @@ type readinessService struct {
 	State        string `json:"state"`
 	TargetCount  int    `json:"targetCount"`
 	ReadyTargets int    `json:"readyTargets"`
+	Reason       string `json:"reason,omitempty"`
+}
+
+// stoppedServiceLister is implemented by Docker discovery to explain services
+// whose containers are no longer running.
+type stoppedServiceLister interface {
+	StoppedServices(ctx context.Context, services []string) (map[string]string, error)
 }
 
 type readinessResponse struct {
@@ -94,7 +101,38 @@ func (s *Server) waitForReadiness(ctx context.Context, services []string, timeou
 		}
 	}
 	result.WaitedMs = time.Since(started).Milliseconds()
+	s.explainStoppedServices(ctx, result.Services)
 	return result, nil
+}
+
+// explainStoppedServices replaces "missing" with "stopped" and the container's
+// exit reason for services whose containers exist but are not running, such as
+// a service that crashed on startup. It asks Docker once, only when a wait ends
+// with missing services; a failed lookup leaves them missing.
+func (s *Server) explainStoppedServices(ctx context.Context, services []readinessService) {
+	lister, ok := s.containers.(stoppedServiceLister)
+	if !ok {
+		return
+	}
+	missing := make([]string, 0, len(services))
+	for _, service := range services {
+		if service.State == "missing" {
+			missing = append(missing, service.Service)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	stopped, err := lister.StoppedServices(ctx, missing)
+	if err != nil {
+		return
+	}
+	for index := range services {
+		if reason, ok := stopped[services[index].Service]; ok && services[index].State == "missing" {
+			services[index].State = "stopped"
+			services[index].Reason = reason
+		}
+	}
 }
 
 func parseServiceNames(r *http.Request) ([]string, error) {

@@ -137,7 +137,12 @@ services:
       metriclens.path: "/metrics"
 ```
 
-To hide a service from metriclens, label it `metriclens.exclude: "true"`.
+To hide a service from metriclens, label it `metriclens.exclude: "true"`. A
+service where no metrics endpoint was ever found (a database, a load generator)
+is reported as informational `no_metrics_endpoint`, not as a scrape error; a
+service whose endpoint stops working after being scraped is still an error.
+When a container exits or restarts, the `target disappeared` finding and
+readiness (`stopped` state) include its exit code and whether it was OOM killed.
 
 On the metriclens container itself you can tune two environment variables: `metriclens_SCRAPE_INTERVAL` (default `5s`) and `metriclens_RETENTION` (default `15m`, metrics are kept in memory only).
 

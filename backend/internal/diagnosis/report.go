@@ -201,7 +201,19 @@ func BuildWithOptions(source Source, now time.Time, window time.Duration, limit 
 			report.Targets.Down++
 		}
 
-		if target.Status != model.TargetStatusUp || target.LastError != "" {
+		if target.NoMetricsEndpoint {
+			// A service that never exposed metrics is not failing; keep it
+			// visible without turning every report into an error.
+			report.Findings = append(report.Findings, Finding{
+				Severity:   "info",
+				Signal:     "no_metrics_endpoint",
+				TargetID:   target.ID,
+				Service:    target.ServiceName,
+				Message:    "no Prometheus metrics endpoint found",
+				Suggestion: "Set metriclens.port and metriclens.path labels if the service exposes metrics, or metriclens.exclude to hide it.",
+				score:      3,
+			})
+		} else if target.Status != model.TargetStatusUp || target.LastError != "" {
 			message := strings.TrimSpace(target.LastError)
 			if message == "" {
 				message = "target is down"
