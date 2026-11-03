@@ -9,6 +9,7 @@ import { useConfig } from "./hooks/useConfig";
 import type { ScrubPosition } from "./hooks/useScrub";
 import { useTheme } from "./hooks/useTheme";
 import { isEditable } from "./lib/dom";
+import { readMetricLocation } from "./lib/location";
 import { LAST_TARGET_KEY, loadString, saveString } from "./lib/storage";
 import type { Target } from "./types";
 
@@ -17,12 +18,14 @@ export default function App() {
   const config = useConfig();
   const [targets, setTargets] = useState<Target[]>([]);
   const [targetsError, setTargetsError] = useState<string | null>(null);
+  const [targetsLoaded, setTargetsLoaded] = useState(false);
+  const [route, setRoute] = useState(() => readMetricLocation(window.location));
   const [selectedId, setSelectedId] = useState<string | null>(
-    () => hashTarget() ?? loadString(LAST_TARGET_KEY),
+    () => route.targetId ?? loadString(LAST_TARGET_KEY),
   );
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // Lifted scrub position, shared by every target so the timeline survives tab switches.
-  const [scrubPosition, setScrubPosition] = useState<ScrubPosition | null>(null);
+  const [scrubPosition, setScrubPosition] = useState<ScrubPosition | null>(route.position);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,6 +36,7 @@ export default function App() {
         if (!cancelled) {
           setTargets(next);
           setTargetsError(null);
+          setTargetsLoaded(true);
         }
       } catch (error) {
         if (!cancelled) {
@@ -50,13 +54,27 @@ export default function App() {
   }, [config.scrapeIntervalMs]);
 
   useEffect(() => {
-    const onHash = () => setSelectedId(hashTarget());
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    const onNavigation = () => {
+      const next = readMetricLocation(window.location);
+      setRoute(next);
+      setSelectedId(next.targetId);
+      setScrubPosition(next.position);
+    };
+    window.addEventListener("hashchange", onNavigation);
+    window.addEventListener("popstate", onNavigation);
+    return () => {
+      window.removeEventListener("hashchange", onNavigation);
+      window.removeEventListener("popstate", onNavigation);
+    };
   }, []);
 
   const select = useCallback((id: string) => {
-    window.location.hash = encodeURIComponent(id);
+    const next = new URL(window.location.href);
+    ["target", "metric", "start", "end"].forEach((key) => next.searchParams.delete(key));
+    next.hash = encodeURIComponent(id);
+    window.history.pushState(null, "", next);
+    setRoute({ targetId: id, metric: null, position: null, error: null });
+    setSelectedId(id);
   }, []);
 
   const targetsRef = useRef(targets);
@@ -66,10 +84,6 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Tab") {
-        event.preventDefault();
-        return;
-      }
       if (event.key === "Escape" && shortcutsOpen) {
         setShortcutsOpen(false);
         return;
@@ -90,20 +104,22 @@ export default function App() {
       if (digit >= 1 && digit <= 9) {
         const target = targetsRef.current[digit - 1];
         if (target) {
-          window.location.hash = encodeURIComponent(target.id);
+          select(target.id);
         }
         return;
       }
       if (event.key === "n" || event.key === "p") {
-        selectRelativeTarget(targetsRef.current, selectedId, event.key === "n" ? 1 : -1);
+        selectRelativeTarget(targetsRef.current, selectedId, event.key === "n" ? 1 : -1, select);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedId, shortcutsOpen, toggle]);
+  }, [selectedId, shortcutsOpen, toggle, select]);
 
-  const selected = targets.find((target) => target.id === selectedId) ?? targets[0] ?? null;
+  const selected =
+    targets.find((target) => target.id === selectedId) ?? (route.targetId ? null : (targets[0] ?? null));
   const selectedTargetId = selected?.id ?? null;
+  const linkedTargetMissing = route.targetId && !selected && targetsLoaded && !targetsError;
 
   useEffect(() => {
     if (selectedTargetId) {
@@ -155,23 +171,42 @@ export default function App() {
         <p className="mx-auto max-w-6xl px-6 py-3 text-xs text-danger">{targetsError}</p>
       ) : null}
 
+      {route.error ? (
+        <p className="mx-auto max-w-6xl px-6 py-3 text-xs text-danger" role="alert">
+          {route.error}
+        </p>
+      ) : null}
+
+      {linkedTargetMissing ? (
+        <p className="mx-auto max-w-6xl px-6 py-6 text-xs text-warn" role="status">
+          Linked target “{route.targetId}” is no longer available. Select an available service or wait for
+          discovery.
+        </p>
+      ) : null}
+
       {selected ? (
         <TargetView
-          key={selected.id}
+          key={`${selected.id}:${route.metric ?? ""}:${route.position?.domain.join(":") ?? ""}`}
+          linkedMetric={route.metric}
           onScrubPosition={setScrubPosition}
           retentionMs={config.retentionMs}
           scrapeIntervalMs={config.scrapeIntervalMs}
           scrubPosition={scrubPosition}
           target={selected}
         />
-      ) : (
+      ) : linkedTargetMissing ? null : (
         <EmptyState error={targetsError} />
       )}
     </div>
   );
 }
 
-function selectRelativeTarget(targets: Target[], selectedId: string | null, offset: number) {
+function selectRelativeTarget(
+  targets: Target[],
+  selectedId: string | null,
+  offset: number,
+  select: (id: string) => void,
+) {
   if (!targets.length) {
     return;
   }
@@ -179,11 +214,6 @@ function selectRelativeTarget(targets: Target[], selectedId: string | null, offs
   const nextIndex = current === -1 ? 0 : (current + offset + targets.length) % targets.length;
   const next = targets[nextIndex];
   if (next) {
-    window.location.hash = encodeURIComponent(next.id);
+    select(next.id);
   }
-}
-
-function hashTarget(): string | null {
-  const hash = window.location.hash.slice(1);
-  return hash ? decodeURIComponent(hash) : null;
 }

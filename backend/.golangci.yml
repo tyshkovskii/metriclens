@@ -7,7 +7,7 @@ run:
   timeout: 5m
   tests: true
   modules-download-mode: readonly
-  go: "1.26"
+  go: "1.27"
 
 linters:
   default: none
@@ -86,7 +86,7 @@ linters:
       # `default` branches when every known value is handled.
       check:
         - switch
-        - map
+        - mapliteral
     gocritic:
       # Limit go-critic to diagnostic checks; style/perf/opinionated checks are
       # useful locally but too noisy as a security gate.

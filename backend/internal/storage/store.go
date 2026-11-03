@@ -49,6 +49,19 @@ func (s *Store) Retention() time.Duration {
 	return s.retention
 }
 
+// Prune expires every series, including labels and targets no longer scraped.
+func (s *Store) Prune(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cutoff := now.UTC().Add(-s.retention)
+	for key, series := range s.series {
+		series.trim(cutoff)
+		if len(series.points) == 0 {
+			delete(s.series, key)
+		}
+	}
+}
+
 func (s *Store) Record(targetID string, families []model.MetricFamily, scrapedAt time.Time) {
 	s.RecordWithIdentity(targetID, targetID, families, scrapedAt)
 }
@@ -67,6 +80,9 @@ func (s *Store) RecordWithIdentity(historyID, targetID string, families []model.
 	for _, family := range families {
 		for _, sample := range family.Samples {
 			pointTime := sampleTime(sample, scrapedAt)
+			if pointTime.Before(cutoff) {
+				continue
+			}
 			key := seriesKey(historyID, sample.Metric, sample.Labels)
 			series, ok := s.series[key]
 			if !ok {
@@ -79,7 +95,11 @@ func (s *Store) RecordWithIdentity(historyID, targetID string, families []model.
 				s.series[key] = series
 			}
 			series.targetID = targetID
+			outOfOrder := len(series.points) > 0 && series.points[len(series.points)-1].ts.After(pointTime)
 			series.points = append(series.points, storedPoint{ts: pointTime, value: sample.Value})
+			if outOfOrder {
+				sort.SliceStable(series.points, func(i, j int) bool { return series.points[i].ts.Before(series.points[j].ts) })
+			}
 			series.trim(cutoff)
 		}
 	}
@@ -204,9 +224,7 @@ func (s *storedSeries) trim(cutoff time.Time) {
 	for firstKept < len(s.points) && s.points[firstKept].ts.Before(cutoff) {
 		firstKept++
 	}
-	if firstKept > 0 {
-		s.points = append([]storedPoint(nil), s.points[firstKept:]...)
-	}
+	s.points = s.points[firstKept:]
 }
 
 func (s *storedSeries) toModel(targetID string) model.Series {

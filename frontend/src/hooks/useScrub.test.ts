@@ -31,6 +31,49 @@ describe("clamp", () => {
 });
 
 describe("useScrub", () => {
+  it("finishes loading when metric discovery changes during an in-flight request", async () => {
+    let resolveFirst: (value: Record<string, Series[]>) => void = () => {};
+    fetchMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFirst = resolve;
+      }),
+    );
+    fetchMock.mockResolvedValueOnce({ m: [], n: [] });
+    const { result, rerender } = renderHook(({ names }) => useScrubHarness(names, () => {}), {
+      initialProps: { names: ["m"] },
+    });
+    act(() => {
+      result.current.begin(1000, [0, 5000]);
+    });
+    expect(result.current.loading).toBe(true);
+    await act(async () => {
+      rerender({ names: ["m", "n"] });
+      await Promise.resolve();
+    });
+    expect(result.current.series).toEqual({ m: [], n: [] });
+    expect(result.current.loading).toBe(false);
+    await act(async () => {
+      resolveFirst({ m: [] });
+      await Promise.resolve();
+    });
+    expect(result.current.series).toEqual({ m: [], n: [] });
+  });
+
+  it("reports failed history instead of treating it as empty samples", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("HTTP 503"));
+    const { result } = renderHook(() => useScrubHarness(["m"], () => {}));
+    await act(async () => {
+      result.current.begin(1000, [0, 5000]);
+      await Promise.resolve();
+    });
+    expect(result.current.error).toBe("HTTP 503");
+    expect(result.current.loading).toBe(false);
+    expect(result.current.series).toBeNull();
+    act(() => {
+      result.current.goLive();
+    });
+    expect(result.current.error).toBeNull();
+  });
   it("starts live and enters scrub on begin, freezing the entry domain", () => {
     const { result } = renderHook(() => useScrubHarness(["m"], () => {}));
     expect(result.current.mode).toBe("live");

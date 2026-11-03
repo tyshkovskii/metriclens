@@ -34,7 +34,7 @@ export type MetricFamily = {
 export type MetricSample = {
   metric: string;
   labels: Record<string, string>;
-  value: number;
+  value: number | null;
   timestamp?: number;
 };
 
@@ -74,7 +74,7 @@ export type MetricQualityIssue = {
 
 export type SeriesPoint = {
   ts: string;
-  value: number;
+  value: number | null;
 };
 
 export type Series = {

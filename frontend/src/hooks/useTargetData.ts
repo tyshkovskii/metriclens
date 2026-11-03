@@ -45,8 +45,9 @@ export function useTargetData(targetId: string, pausedRef: React.RefObject<boole
       if (next.metrics) {
         const values = new Map<string, number>();
         next.metrics.families.forEach((family) => {
-          family.samples.forEach((sample) =>
-            values.set(sampleKey(sample.metric, sample.labels), sample.value),
+          family.samples.forEach(
+            (sample) =>
+              sample.value !== null && values.set(sampleKey(sample.metric, sample.labels), sample.value),
           );
         });
         const history = historyRef.current;

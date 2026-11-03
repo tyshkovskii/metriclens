@@ -123,6 +123,35 @@ describe("deltaText", () => {
 });
 
 describe("resolveRows (live)", () => {
+  it("does not display a retained value before the linked time window", () => {
+    const family: MetricFamily = {
+      name: "q",
+      type: "gauge",
+      samples: [{ metric: "q", labels: {}, value: 99 }],
+    };
+    const rows = resolveRows(
+      family,
+      {
+        active: true,
+        loading: false,
+        t: 5000,
+        start: 2000,
+        seriesByMetric: {
+          q: [
+            {
+              targetId: "t",
+              metric: "q",
+              labels: {},
+              points: [{ ts: new Date(1000).toISOString(), value: 7 }],
+            },
+          ],
+        },
+      },
+      () => null,
+    );
+    expect(rows).toEqual([{ metric: "q", labels: {}, value: null, delta: null }]);
+  });
+
   it("pairs each sample's current value with a history-based delta", () => {
     const family: MetricFamily = {
       name: "orders_total",

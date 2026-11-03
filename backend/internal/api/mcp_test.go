@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"metriclens/backend/internal/model"
 )
@@ -132,6 +134,32 @@ func TestMCPToolsThroughOfficialClient(t *testing.T) {
 	decodeMCPStructured(t, evidenceResult, &evidence)
 	if evidence.SeriesCount != 1 || evidence.PointCount != 1 || evidence.SeriesTruncated || !evidence.PointsTruncated || len(evidence.Series) != 1 || len(evidence.Series[0].Points) != 1 {
 		t.Fatalf("evidence = %#v, want bounded one-point metadata", evidence)
+	}
+	store.batch[0].Points[1].Value = math.NaN()
+	nonFiniteResult := callMCPTool(t, session, "get_metric_evidence", map[string]any{
+		"targetId": "api-1", "metrics": []string{"http_requests_total"}, "maxPoints": 1,
+	})
+	var nonFinite map[string]any
+	decodeMCPStructured(t, nonFiniteResult, &nonFinite)
+	for _, tool := range tools.Tools {
+		if tool.Name != "get_metric_evidence" {
+			continue
+		}
+		encodedSchema, marshalErr := json.Marshal(tool.OutputSchema)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		var schema jsonschema.Schema
+		if decodeErr := json.Unmarshal(encodedSchema, &schema); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		resolved, resolveErr := schema.Resolve(nil)
+		if resolveErr != nil {
+			t.Fatal(resolveErr)
+		}
+		if validateErr := resolved.Validate(nonFinite); validateErr != nil {
+			t.Fatalf("non-finite evidence violates advertised MCP output schema: %v", validateErr)
+		}
 	}
 
 	invalidResult := callMCPTool(t, session, "wait_for_stack", map[string]any{})

@@ -21,6 +21,7 @@ export function FamilyRow({
   seriesByMetric,
   domain,
   panels,
+  targetId,
 }: {
   family: MetricFamily;
   summary: FamilySummary;
@@ -34,6 +35,7 @@ export function FamilyRow({
   seriesByMetric: Record<string, Series[]>;
   domain: [number, number] | null;
   panels: SuggestedPanel[];
+  targetId: string;
 }) {
   const [issuesOpen, setIssuesOpen] = useState(false);
   const distribution = family.type === "histogram" || family.type === "summary";
@@ -75,6 +77,20 @@ export function FamilyRow({
           ) : null}
         </button>
         {badge}
+        <a
+          aria-label={`Link to ${family.name}`}
+          className="shrink-0 text-[11px] text-muted hover:text-accent"
+          href={`/?${new URLSearchParams({
+            target: targetId,
+            metric: family.name,
+            ...(domain
+              ? { start: new Date(domain[0]).toISOString(), end: new Date(domain[1]).toISOString() }
+              : {}),
+          })}`}
+          title="Open or copy a link to this metric and time window"
+        >
+          link
+        </a>
         <span className="hidden min-w-0 truncate text-[11px] text-muted md:block" title={family.help}>
           {family.help}
         </span>

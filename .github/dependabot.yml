@@ -1,7 +1,22 @@
 version: 2
 updates:
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:30"
+      timezone: America/Denver
+    open-pull-requests-limit: 5
+    groups:
+      frontend:
+        patterns: ["*"]
+
   - package-ecosystem: gomod
-    directory: /backend
+    directories:
+      - /backend
+      - /example/basic/api
+      - /example/basic/worker
     schedule:
       interval: weekly
       day: monday
@@ -10,11 +25,49 @@ updates:
     open-pull-requests-limit: 5
 
   - package-ecosystem: docker
-    directory: /
+    directories:
+      - /
+      - /example/basic/api
+      - /example/basic/worker
+      - /example/python-client/app
+      - /example/pushgateway/batch
     schedule:
       interval: weekly
       day: monday
       time: "09:30"
+      timezone: America/Denver
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker-compose
+    directories:
+      - /example/basic
+      - /example/python-client
+      - /example/redis-exporter
+      - /example/pushgateway
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:30"
+      timezone: America/Denver
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: metriclens
+
+  - package-ecosystem: pip
+    directory: /example/python-client/app
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:45"
+      timezone: America/Denver
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: devcontainers
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
       timezone: America/Denver
     open-pull-requests-limit: 5
 

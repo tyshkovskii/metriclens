@@ -27,20 +27,15 @@ export async function fetchPanels(targetId: string): Promise<SuggestedPanel[]> {
 }
 
 /**
- * Series for several metrics at once, keyed by metric name. A metric whose
- * fetch fails maps to an empty list so one bad metric doesn't drop the rest.
+ * Series for several metrics at once, keyed by metric name. Request failures
+ * propagate so callers can distinguish unavailable history from no samples.
  */
 export async function fetchSeriesByMetric(
   targetId: string,
   metrics: string[],
 ): Promise<Record<string, Series[]>> {
   const entries = await Promise.all(
-    metrics.map((metric) =>
-      fetchSeries(targetId, metric).then(
-        (series) => [metric, series] as const,
-        () => [metric, [] as Series[]] as const,
-      ),
-    ),
+    metrics.map((metric) => fetchSeries(targetId, metric).then((series) => [metric, series] as const)),
   );
   return Object.fromEntries(entries);
 }
