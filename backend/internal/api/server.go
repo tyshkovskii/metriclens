@@ -21,7 +21,7 @@ import (
 	"metriclens/backend/internal/web"
 )
 
-const Version = "1.0.0"
+const Version = "1.1.0"
 
 // MinScrapeInterval bounds runtime cadence changes so an API caller cannot make
 // the scraper poll every service and the Docker API continuously.
