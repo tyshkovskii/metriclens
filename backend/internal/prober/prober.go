@@ -62,6 +62,11 @@ func (p *Prober) probeContainer(ctx context.Context, container model.DiscoveredC
 		Status:        model.TargetStatusDown,
 		DiscoveredAt:  discoveredAt,
 	}
+	// Until a probe succeeds, a container is treated as uninstrumented unless
+	// its labels declare a metrics endpoint; a declared one failing is an error.
+	_, declaredPort := container.Labels[portLabel]
+	_, declaredPath := container.Labels[pathLabel]
+	target.NoMetricsEndpoint = !declaredPort && !declaredPath
 
 	urls, configError := candidateURLs(container)
 	if len(urls) == 0 {
@@ -75,6 +80,7 @@ func (p *Prober) probeContainer(ctx context.Context, container model.DiscoveredC
 		if ok {
 			target.URL = url
 			target.Status = model.TargetStatusUp
+			target.NoMetricsEndpoint = false
 			return target
 		}
 		lastError = errMessage

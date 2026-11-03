@@ -27,7 +27,8 @@ the human must use an address reachable from their browser.
 2. Call `wait_for_stack` with the explicit service names, such as `api` and
    `worker`. Only scrapes that complete after the call starts count, so even a
    ready stack takes about one scrape interval to confirm; use a timeout well
-   above it. Inspect readiness failures before continuing.
+   above it. Inspect readiness failures before continuing: a `stopped` service
+   carries its container's exit code, OOM kill, or restart as `reason`.
 3. Call `start_experiment` with a short name and optional `clientRunId`.
 4. Run a focused workload or test through normal development tools.
 5. Call `compare_experiment` with the returned marker ID, a small `limit`, and

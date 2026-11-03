@@ -22,6 +22,8 @@ export type Target = {
   lastScrapeAt?: string;
   lastScrapeDuration?: string;
   discoveredAt: string;
+  /** A running container where no metrics endpoint has ever been found. */
+  noMetricsEndpoint?: boolean;
 };
 
 export type MetricFamily = {

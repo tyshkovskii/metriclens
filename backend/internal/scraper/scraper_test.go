@@ -398,6 +398,63 @@ func TestLifecycleEventsTrackTransitionsAndDisappearance(t *testing.T) {
 	}
 }
 
+type exitingContainerLister struct {
+	fakeContainerLister
+	exits map[string]string
+}
+
+func (f exitingContainerLister) ContainerExit(_ context.Context, id string) (string, bool) {
+	reason, ok := f.exits[id]
+	return reason, ok
+}
+
+func TestDisappearedTargetReportsHowItsContainerEnded(t *testing.T) {
+	prober := &sequenceTargetProber{sequences: [][]model.Target{
+		{{ID: "worker-1", HistoryID: "compose:shop/worker/1", ServiceName: "worker", Status: model.TargetStatusDown, LastError: "GET http://worker:9090/metrics failed"}},
+		{},
+	}}
+	lister := exitingContainerLister{exits: map[string]string{"worker-1": "container exited with code 137, OOM killed"}}
+	scraper := New(lister, prober, nil, storage.New(time.Minute), time.Second)
+	first := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+	scraper.now = func() time.Time { return first }
+	if err := scraper.RunOnce(context.Background()); err != nil {
+		t.Fatalf("first RunOnce() error = %v", err)
+	}
+	scraper.now = func() time.Time { return first.Add(5 * time.Second) }
+	if err := scraper.RunOnce(context.Background()); err != nil {
+		t.Fatalf("second RunOnce() error = %v", err)
+	}
+	events := scraper.LifecycleEvents(first, first.Add(5*time.Second))
+	last := events[len(events)-1]
+	if last.Kind != model.LifecycleEventDisappeared || last.Error != "container exited with code 137, OOM killed after scrape error: GET http://worker:9090/metrics failed" {
+		t.Fatalf("events = %#v, want disappearance explained by the container exit", events)
+	}
+}
+
+func TestNoMetricsEndpointOnlyForTargetsNeverScraped(t *testing.T) {
+	scrapedTarget := model.Target{ID: "api-1", HistoryID: "compose:shop/api/1", ServiceName: "api", URL: "http://api:8080/metrics", Status: model.TargetStatusUp}
+	brokenTarget := scrapedTarget
+	brokenTarget.URL, brokenTarget.Status, brokenTarget.NoMetricsEndpoint = "", model.TargetStatusDown, true
+	redis := model.Target{ID: "redis-1", HistoryID: "compose:shop/redis/1", ServiceName: "redis", Status: model.TargetStatusDown, NoMetricsEndpoint: true}
+	prober := &sequenceTargetProber{sequences: [][]model.Target{{scrapedTarget, redis}, {brokenTarget, redis}}}
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return response(http.StatusOK, "# TYPE up gauge\nup 1\n"), nil
+	})}
+	scraper := New(fakeContainerLister{}, prober, client, nil, time.Second)
+	for range 2 {
+		if err := scraper.RunOnce(context.Background()); err != nil {
+			t.Fatalf("RunOnce() error = %v", err)
+		}
+	}
+	flags := map[string]bool{}
+	for _, target := range scraper.Targets() {
+		flags[target.ServiceName] = target.NoMetricsEndpoint
+	}
+	if flags["api"] || !flags["redis"] {
+		t.Fatalf("noMetricsEndpoint = %#v, want only the never-scraped redis flagged", flags)
+	}
+}
+
 func TestLifecycleEventsHonorSeriesRetention(t *testing.T) {
 	prober := &sequenceTargetProber{sequences: [][]model.Target{
 		{{ID: "target-1", ServiceName: "api", Status: model.TargetStatusDown}},

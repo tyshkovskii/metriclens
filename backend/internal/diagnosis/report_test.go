@@ -465,3 +465,18 @@ func TestBoundedDiagnosticTruncatesToValidUTF8(t *testing.T) {
 		t.Fatalf("bounded value runes=%d suffix=%q valid=%v, want 512-rune ellipsis string", len([]rune(value)), value[len(value)-3:], utf8.ValidString(value))
 	}
 }
+
+func TestBuildReportsUninstrumentedServicesAsInfo(t *testing.T) {
+	source := fakeSource{targets: []model.Target{
+		{ID: "redis-1", ServiceName: "redis", Status: model.TargetStatusDown, LastError: "no probe candidates available", NoMetricsEndpoint: true},
+		{ID: "api-1", ServiceName: "api", Status: model.TargetStatusDown, LastError: "GET http://api:8080/metrics failed"},
+	}}
+	report := Build(source, time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC), time.Minute, MaxLimit)
+	signals := map[string]string{}
+	for _, finding := range report.Findings {
+		signals[finding.Service] = finding.Severity + " " + finding.Signal
+	}
+	if signals["redis"] != "info no_metrics_endpoint" || signals["api"] != "error scrape_error" || report.Targets.Down != 2 {
+		t.Fatalf("findings = %#v targets %#v, want info for the uninstrumented service and an error for the broken one", signals, report.Targets)
+	}
+}

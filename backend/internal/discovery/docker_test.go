@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -12,10 +13,73 @@ import (
 
 type fakeDockerClient struct {
 	containers []container.Summary
+	states     map[string]*container.State
 }
 
-func (f fakeDockerClient) ContainerList(context.Context, client.ContainerListOptions) (client.ContainerListResult, error) {
-	return client.ContainerListResult{Items: f.containers}, nil
+func (f fakeDockerClient) ContainerList(_ context.Context, options client.ContainerListOptions) (client.ContainerListResult, error) {
+	items := make([]container.Summary, 0, len(f.containers))
+	for _, c := range f.containers {
+		if options.All || c.State == "" || c.State == container.StateRunning {
+			items = append(items, c)
+		}
+	}
+	return client.ContainerListResult{Items: items}, nil
+}
+
+func (f fakeDockerClient) ContainerInspect(_ context.Context, id string, _ client.ContainerInspectOptions) (client.ContainerInspectResult, error) {
+	state, ok := f.states[id]
+	if !ok {
+		return client.ContainerInspectResult{}, errors.New("no such container")
+	}
+	return client.ContainerInspectResult{Container: container.InspectResponse{State: state}}, nil
+}
+
+func TestContainerExitAndStoppedServicesExplainStoppedContainers(t *testing.T) {
+	compose := func(id, service string, state container.ContainerState) container.Summary {
+		return container.Summary{ID: id, State: state, Labels: map[string]string{composeProjectLabel: "shop", composeServiceLabel: service}}
+	}
+	oneOff := compose("api-run", "api", container.StateExited)
+	oneOff.Labels[composeOneOffLabel] = "True"
+	d := &DockerDiscovery{selfID: "self", client: fakeDockerClient{
+		containers: []container.Summary{
+			compose("self", "metriclens", container.StateRunning),
+			compose("api", "api", container.StateRunning),
+			oneOff,
+			compose("worker", "worker", container.StateExited),
+			compose("cron", "cron", container.StateRestarting),
+			compose("db", "db", container.StateExited),
+		},
+		states: map[string]*container.State{
+			"api":     {Status: container.StateRunning, Running: true},
+			"api-run": {Status: container.StateExited, ExitCode: 2},
+			"worker":  {Status: container.StateExited, ExitCode: 137, OOMKilled: true},
+			"cron":    {Status: container.StateRestarting, Running: true, Restarting: true, ExitCode: 1},
+			"db":      {Status: container.StateExited},
+		},
+	}}
+
+	if reason, ok := d.ContainerExit(context.Background(), "api"); ok {
+		t.Fatalf("running container reason = %q, want none", reason)
+	}
+	if _, ok := d.ContainerExit(context.Background(), "removed"); ok {
+		t.Fatal("a removed container should have no exit reason")
+	}
+	stopped, err := d.StoppedServices(context.Background(), []string{"api", "worker", "cron"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"worker": "container exited with code 137, OOM killed",
+		"cron":   "container is restarting after exiting with code 1",
+	}
+	if !reflect.DeepEqual(stopped, want) {
+		t.Fatalf("stopped = %#v, want %#v", stopped, want)
+	}
+
+	d.selfID = ""
+	if unscoped, err := d.StoppedServices(context.Background(), []string{"worker"}); err != nil || len(unscoped) != 0 {
+		t.Fatalf("unscoped stopped = %#v %v, want none outside a Compose project", unscoped, err)
+	}
 }
 
 func TestListContainersExcludesSelf(t *testing.T) {
