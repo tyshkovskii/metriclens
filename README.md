@@ -29,7 +29,7 @@ docker compose up --build
 Open <http://localhost:9999>. You'll see both services discovered and scraped, with:
 
 - **Raw metrics** — every metric with its help text, type, and labels, updated live.
-- **Panels** — charts built automatically from metric types: rates for counters, current values for gauges, latency percentiles for histograms.
+- **Panels** — charts built automatically from metric types: rates for counters, current values for gauges, throughput from histogram counts.
 - **Quality warnings** — missing `HELP` or `TYPE`, counters not named `*_total`, labels that look high-cardinality.
 
 See the [example index](example) for additional projects showing application
@@ -72,8 +72,19 @@ wait_for_stack → start_experiment → run workload → compare_experiment → 
 Keep comparisons small with `warning,error`, `changedOnly: true`, and a low limit.
 Request evidence only for significant findings that need detail.
 
+Findings include a relative `uiUrl`: resolve it against your browser-accessible
+MetricLens URL and send it to the human reviewing the result. It opens the target,
+metric, and the report's time window. You can also use the **link** beside a
+metric in the UI. Links preserve the selection, while the underlying evidence
+expires with retention. Prometheus `NaN` and infinite samples appear as JSON
+`null` and chart gaps; they do not mean zero.
+
 An `omitted` count above zero means the report is incomplete. Markers and metric
 evidence expire with the configured in-memory retention window.
+
+For a practical agent integration and local verification commands, see
+[the development guide](docs/development.md). The [repository audit](docs/product-audit.md)
+records the product priorities and remaining detection limitations.
 
 ## CLI workflow
 

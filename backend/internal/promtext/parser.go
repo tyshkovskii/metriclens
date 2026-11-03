@@ -192,11 +192,23 @@ func splitSampleLine(line string) (string, string, error) {
 	firstSpace := strings.IndexAny(line, " \t")
 
 	if openBrace >= 0 && (firstSpace == -1 || openBrace < firstSpace) {
-		closeBrace := strings.IndexByte(line[openBrace:], '}')
+		closeBrace := -1
+		for i := openBrace + 1; i < len(line); i++ {
+			if line[i] == '"' {
+				_, next, err := readQuoted(line, i)
+				if err != nil {
+					return "", "", err
+				}
+				i = next - 1
+			} else if line[i] == '}' {
+				closeBrace = i
+				break
+			}
+		}
 		if closeBrace == -1 {
 			return "", "", fmt.Errorf("unterminated label set")
 		}
-		tokenEnd := openBrace + closeBrace + 1
+		tokenEnd := closeBrace + 1
 		if tokenEnd >= len(line) || !isSpace(line[tokenEnd]) {
 			return "", "", fmt.Errorf("missing whitespace after label set")
 		}
@@ -280,7 +292,7 @@ func parseLabels(value string) (map[string]string, error) {
 		}
 		i++
 		if skipSpaces(value, i) == len(value) {
-			return nil, fmt.Errorf("trailing comma after label %q", name)
+			break
 		}
 	}
 	return labels, nil

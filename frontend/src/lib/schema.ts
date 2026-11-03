@@ -23,6 +23,7 @@ export type ScrubView = {
   active: boolean;
   loading: boolean;
   t: number;
+  start: number;
   seriesByMetric: Record<string, Series[]> | null;
 };
 
@@ -109,8 +110,8 @@ export function resolveRows(
     const names = [...new Set(family.samples.map((sample) => sample.metric))];
     return names.flatMap((name) =>
       (scrub.seriesByMetric?.[name] || []).map((entry) => {
-        const current = valueAt(entry.points, scrub.t);
-        const previous = valueAt(entry.points, scrub.t - DELTA_WINDOW_MS);
+        const current = valueAt(entry.points, scrub.t, scrub.start);
+        const previous = valueAt(entry.points, scrub.t - DELTA_WINDOW_MS, scrub.start);
         return {
           metric: name,
           labels: entry.labels,

@@ -1,12 +1,24 @@
 package classifier
 
 import (
+	"math"
 	"reflect"
 	"strconv"
 	"testing"
 
 	"metriclens/backend/internal/model"
 )
+
+func TestBehaviorDoesNotCountNonFinitePairsAsEvidence(t *testing.T) {
+	b := observe(func(string) []model.Series {
+		return []model.Series{{Points: []model.SeriesPoint{
+			{Value: 1}, {Value: 2}, {Value: math.NaN()}, {Value: 3}, {Value: math.Inf(1)}, {Value: 4}, {Value: 5},
+		}}}
+	}, "untyped")
+	if b.deltas != 2 || b.increases != 2 || b.counterLike() {
+		t.Fatalf("behavior = %#v, want only two finite pairs and insufficient evidence", b)
+	}
+}
 
 func TestClassifyCounter(t *testing.T) {
 	panels := Classify([]model.MetricFamily{

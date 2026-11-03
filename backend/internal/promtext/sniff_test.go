@@ -12,6 +12,7 @@ func TestSniff(t *testing.T) {
 		{name: "type", body: "# TYPE requests_total counter\n", want: true},
 		{name: "sample", body: "requests_total 123\n", want: true},
 		{name: "labeled sample", body: "requests_total{method=\"GET\"} 123 1710000000000\n", want: true},
+		{name: "quoted braces", body: `requests_total{route="/items/{id}",note="a \"} quoted\" value"} 3`, want: true},
 		{name: "html", body: "<html></html>", want: false},
 		{name: "json", body: `{"status":"ok"}`, want: false},
 		{name: "empty", body: "", want: false},

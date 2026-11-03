@@ -11,7 +11,7 @@ export type StackRow = { ts: number } & Record<string, number | null>;
 const MAX_SERIES = 8;
 
 /** Last value at or before t (epoch ms); null if t precedes the series. */
-export function valueAt(points: SeriesPoint[], t: number): number | null {
+export function valueAt(points: SeriesPoint[], t: number, start = -Infinity): number | null {
   let low = 0;
   let high = points.length - 1;
   let found = -1;
@@ -25,7 +25,8 @@ export function valueAt(points: SeriesPoint[], t: number): number | null {
       high = mid - 1;
     }
   }
-  return found >= 0 ? (points[found]?.value ?? null) : null;
+  const point = points[found];
+  return point && Date.parse(point.ts) >= start ? point.value : null;
 }
 
 /** Fallback chart choice when no supported backend panel names the metric. */
@@ -94,6 +95,10 @@ function ratePoints(points: SeriesPoint[]): SeriesPoint[] {
     const previous = points[index - 1];
     const current = points[index];
     if (!previous || !current) {
+      continue;
+    }
+    if (previous.value === null || current.value === null) {
+      rates.push({ ts: current.ts, value: null });
       continue;
     }
     const seconds = (Date.parse(current.ts) - Date.parse(previous.ts)) / 1000;
@@ -167,10 +172,11 @@ function sumPoints(lists: SeriesPoint[][]): SeriesPoint[] {
   if (lists.length === 1 && first) {
     return first;
   }
-  const byTime = new Map<string, number>();
+  const byTime = new Map<string, number | null>();
   lists.forEach((points) => {
     points.forEach((point) => {
-      byTime.set(point.ts, (byTime.get(point.ts) || 0) + point.value);
+      const current = byTime.get(point.ts);
+      byTime.set(point.ts, point.value === null || current === null ? null : (current ?? 0) + point.value);
     });
   });
   return [...byTime.entries()]
@@ -188,14 +194,15 @@ export function buildRows(named: NamedSeries[], fill: 0 | null): StackRow[] {
   named.forEach((entry) => entry.points.forEach((point) => timestamps.add(Date.parse(point.ts))));
   const sorted = [...timestamps].sort((left, right) => left - right);
   const lookups = named.map((entry) => {
-    const byTs = new Map<number, number>();
+    const byTs = new Map<number, number | null>();
     entry.points.forEach((point) => byTs.set(Date.parse(point.ts), point.value));
     return byTs;
   });
   return sorted.map((ts) => {
     const row: StackRow = { ts };
     named.forEach((entry, index) => {
-      row[entry.name] = lookups[index]?.get(ts) ?? fill;
+      const lookup = lookups[index];
+      row[entry.name] = lookup?.has(ts) ? (lookup.get(ts) ?? null) : fill;
     });
     return row;
   });

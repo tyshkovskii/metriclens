@@ -68,6 +68,7 @@ var implementedFeatures = []string{
 	"named-markers",
 	"readiness",
 	"time-travel",
+	"ui-deep-links",
 }
 
 func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {

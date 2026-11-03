@@ -94,6 +94,7 @@ export function MetricList({
       seriesByMetric={seriesByMetric}
       summary={summaries.get(family.name) ?? familySummary(family)}
       panels={panels}
+      targetId={targetId}
     />
   );
 

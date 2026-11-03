@@ -14,7 +14,7 @@ services:
       metriclens_RETENTION: 15m
 
   redis:
-    image: redis:7.4-alpine
+    image: redis:8.10.3-alpine
     expose:
       - "6379"
     labels:
@@ -22,7 +22,7 @@ services:
       metriclens.exclude: "true"
 
   exporter:
-    image: oliver006/redis_exporter:v1.69.0
+    image: oliver006/redis_exporter:v1.96.0
     command:
       - --redis.addr=redis://redis:6379
     depends_on:
@@ -34,7 +34,7 @@ services:
       metriclens.path: "/metrics"
 
   traffic:
-    image: redis:7.4-alpine
+    image: redis:8.10.3-alpine
     depends_on:
       - redis
     command:

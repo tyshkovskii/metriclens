@@ -58,7 +58,7 @@ type Scraper struct {
 	client          HTTPClient
 	series          SeriesStore
 	interval        time.Duration
-	intervalUpdates chan time.Duration
+	intervalUpdates chan struct{}
 	now             func() time.Time
 	retention       time.Duration
 
@@ -87,7 +87,7 @@ func New(containers ContainerLister, prober TargetProber, client HTTPClient, ser
 		client:          client,
 		series:          series,
 		interval:        interval,
-		intervalUpdates: make(chan time.Duration, 1),
+		intervalUpdates: make(chan struct{}, 1),
 		now:             time.Now,
 		retention:       retention,
 		targets:         map[string]model.Target{},
@@ -110,9 +110,8 @@ func (s *Scraper) Start(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case interval := <-s.intervalUpdates:
-				ticker.Stop()
-				ticker = time.NewTicker(interval)
+			case <-s.intervalUpdates:
+				ticker.Reset(s.currentInterval())
 			case <-ticker.C:
 				if err := s.RunOnce(ctx); err != nil {
 					log.Printf("scrape failed: %v", err)
@@ -133,16 +132,11 @@ func (s *Scraper) SetInterval(interval time.Duration) error {
 	s.interval = interval
 	s.mu.Unlock()
 
-	// Keep only the newest pending update if the API is called repeatedly while
-	// the scraper goroutine is busy with a scrape.
+	// Coalesce notifications while a scrape is busy. The receiver reads the
+	// latest interval, so concurrent setters never wait for the scraper.
 	select {
-	case s.intervalUpdates <- interval:
+	case s.intervalUpdates <- struct{}{}:
 	default:
-		select {
-		case <-s.intervalUpdates:
-		default:
-		}
-		s.intervalUpdates <- interval
 	}
 	return nil
 }
@@ -154,6 +148,9 @@ func (s *Scraper) currentInterval() time.Duration {
 }
 
 func (s *Scraper) RunOnce(ctx context.Context) error {
+	if store, ok := s.series.(interface{ Prune(time.Time) }); ok {
+		store.Prune(s.now().UTC())
+	}
 	containers, err := s.containers.ListContainers(ctx)
 	if err != nil {
 		s.setLastError(err)
@@ -524,9 +521,12 @@ func (s *Scraper) get(ctx context.Context, url string) (string, error) {
 		return "", fmt.Errorf("scrape %s returned HTTP %d", url, resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxScrapeBody))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxScrapeBody+1))
 	if err != nil {
 		return "", fmt.Errorf("read scrape response from %s: %w", url, err)
+	}
+	if len(body) > maxScrapeBody {
+		return "", fmt.Errorf("scrape %s response exceeds %d byte limit", url, maxScrapeBody)
 	}
 	return string(body), nil
 }

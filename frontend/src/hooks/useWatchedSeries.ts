@@ -13,8 +13,9 @@ export function useWatchedSeries(
   pausedRef: React.RefObject<boolean>,
   scrubbing: boolean,
   pollMs: number,
-): Record<string, Series[]> {
+) {
   const [seriesByMetric, setSeriesByMetric] = useState<Record<string, Series[]>>({});
+  const [error, setError] = useState<string | null>(null);
   const metricsKey = metrics.join(" ");
 
   useEffect(() => {
@@ -32,9 +33,16 @@ export function useWatchedSeries(
       if (pausedRef.current) {
         return;
       }
-      const next = await fetchSeriesByMetric(targetId, names);
-      if (!cancelled) {
-        setSeriesByMetric(next);
+      try {
+        const next = await fetchSeriesByMetric(targetId, names);
+        if (!cancelled) {
+          setSeriesByMetric(next);
+          setError(null);
+        }
+      } catch (cause) {
+        if (!cancelled) {
+          setError(cause instanceof Error ? cause.message : "History request failed.");
+        }
       }
     }
 
@@ -48,5 +56,5 @@ export function useWatchedSeries(
     // instead of waiting out the poll interval with a stale timeline end.
   }, [metricsKey, targetId, scrubbing, pollMs, pausedRef]);
 
-  return seriesByMetric;
+  return { seriesByMetric, error };
 }

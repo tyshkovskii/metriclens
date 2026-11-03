@@ -31,10 +31,11 @@ export function useTimelineControls(
 
   const scrubbing = scrub.mode === "scrub";
   const domain = scrub.domain ?? liveDomain;
+  const atLiveEdge = Math.abs(domain[1] - liveDomain[1]) <= liveSnap(liveDomain);
 
   const scrubTo = useCallback(
     (t: number) => {
-      if (scrub.mode === "scrub" && isNearLiveEdge(t, domain)) {
+      if (scrub.mode === "scrub" && atLiveEdge && isNearLiveEdge(t, domain)) {
         scrub.goLive();
         return;
       }
@@ -43,13 +44,13 @@ export function useTimelineControls(
       }
       scrub.begin(t, domain);
     },
-    [scrub, domain],
+    [scrub, domain, atLiveEdge],
   );
 
   const nudge = useCallback(
     (direction: number) => {
       const step = direction * NUDGE_MS;
-      if (step > 0 && position && isNearLiveEdge(position.t + step, position.domain)) {
+      if (step > 0 && position && atLiveEdge && isNearLiveEdge(position.t + step, position.domain)) {
         scrub.goLive();
         return;
       }
@@ -63,12 +64,13 @@ export function useTimelineControls(
         return { t: clamp(liveDomain[1] + step, liveDomain), domain: liveDomain };
       });
     },
-    [liveDomain, position, scrub, setPosition],
+    [liveDomain, position, scrub, setPosition, atLiveEdge],
   );
 
   return {
     scrubbing,
     loading: scrub.loading,
+    error: scrub.error,
     t: scrub.t,
     domain,
     chartDomain: scrubbing ? domain : liveDomain,

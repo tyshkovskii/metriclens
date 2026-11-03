@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-var sampleLinePattern = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*(?:\{[^}\r\n]*\})?\s+[-+]?(?:(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?|Inf|NaN)(?:\s+\d+)?$`)
+var sampleLinePattern = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*(?:\{(?:[^"{}\r\n]|"(?:\\.|[^"\\\r\n])*")*\})?\s+[-+]?(?:(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?|Inf|NaN)(?:\s+\d+)?$`)
 
 // Sniff reports whether body looks like Prometheus text exposition format.
 // It is the cheap, lenient counterpart to Parse, used when probing candidate

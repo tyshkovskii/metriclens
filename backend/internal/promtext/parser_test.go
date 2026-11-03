@@ -140,7 +140,6 @@ func TestParseRejectsInvalidSamples(t *testing.T) {
 		{name: "bad value", body: "requests_total nope\n"},
 		{name: "bad metric", body: "9requests_total 1\n"},
 		{name: "bad label", body: `requests_total{method=GET} 1`},
-		{name: "trailing label comma", body: `requests_total{method="GET",} 1`},
 		{name: "bad timestamp", body: "requests_total 1 now\n"},
 	}
 
@@ -150,6 +149,22 @@ func TestParseRejectsInvalidSamples(t *testing.T) {
 				t.Fatal("Parse() error = nil, want error")
 			}
 		})
+	}
+}
+
+func TestParseQuotedBracesAndTrailingLabelComma(t *testing.T) {
+	for _, body := range []string{
+		`requests_total{route="/items/{id}",note="a \"} quoted\" value"} 3`,
+		`requests_total{route="/items/{id}",note="a \"} quoted\" value", } 3`,
+	} {
+		families, err := Parse(strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("Parse(%q) error = %v", body, err)
+		}
+		sample := families[0].Samples[0]
+		if sample.Labels["route"] != "/items/{id}" || sample.Labels["note"] != `a "} quoted" value` || sample.Value != 3 {
+			t.Fatalf("sample = %#v, want quoted braces and value 3", sample)
+		}
 	}
 }
 

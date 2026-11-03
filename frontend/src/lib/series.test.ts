@@ -13,7 +13,7 @@ import {
 import type { MetricFamily, Series, SeriesPoint, SuggestedPanel } from "../types";
 
 /** Build a point from an epoch-ms timestamp (series timestamps are ISO strings). */
-const p = (ms: number, value: number): SeriesPoint => ({ ts: new Date(ms).toISOString(), value });
+const p = (ms: number, value: number | null): SeriesPoint => ({ ts: new Date(ms).toISOString(), value });
 
 const series = (labels: Record<string, string>, points: SeriesPoint[]): Series => ({
   targetId: "t",
@@ -136,6 +136,10 @@ describe("chartMetric", () => {
 });
 
 describe("perSeriesRates / transformSeries", () => {
+  it("preserves missing observations as gaps without zero or reset rates", () => {
+    const [rated] = perSeriesRates([series({}, [p(0, 100), p(1000, null), p(2000, 150), p(3000, 160)])]);
+    expect(rated?.points).toEqual([p(1000, null), p(2000, null), p(3000, 10)]);
+  });
   it("passes gauge series through untouched", () => {
     const input = [series({}, [p(1000, 5), p(2000, 9)])];
     expect(transformSeries("gauge", input)).toBe(input);
@@ -165,6 +169,14 @@ describe("perSeriesRates / transformSeries", () => {
 });
 
 describe("nameSeries", () => {
+  it("keeps an aggregate unknown when one contributing observation is missing", () => {
+    const named = nameSeries([
+      series({ region: "us" }, [p(0, 1), p(1000, 2)]),
+      series({ region: "us" }, [p(0, null), p(1000, 20)]),
+      series({ region: "eu" }, [p(0, 5)]),
+    ]);
+    expect(named.find((entry) => entry.name === "us")?.points).toEqual([p(0, null), p(1000, 22)]);
+  });
   it("drops empty series and returns [] when nothing remains", () => {
     expect(nameSeries([series({ a: "1" }, [])])).toEqual([]);
   });
@@ -208,6 +220,12 @@ describe("nameSeries", () => {
 });
 
 describe("buildRows", () => {
+  it("never substitutes a stacking zero for an explicitly missing observation", () => {
+    expect(buildRows([{ name: "a", points: [p(0, null), p(1000, 3)] }], 0)).toEqual([
+      { ts: 0, a: null },
+      { ts: 1000, a: 3 },
+    ]);
+  });
   it("unions timestamps and fills gaps with the fill value", () => {
     const rows = buildRows(
       [

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +17,12 @@ import (
 type fakeContainerLister struct {
 	containers []model.DiscoveredContainer
 	err        error
+}
+
+type containerListerFunc func(context.Context) ([]model.DiscoveredContainer, error)
+
+func (f containerListerFunc) ListContainers(ctx context.Context) ([]model.DiscoveredContainer, error) {
+	return f(ctx)
 }
 
 type fakeTargetProber struct {
@@ -104,6 +111,89 @@ func TestRunOnceScrapesUpTargets(t *testing.T) {
 	}
 	if metrics.Families[0].Name != "up" {
 		t.Fatalf("family name = %q, want up", metrics.Families[0].Name)
+	}
+}
+
+func TestConcurrentIntervalUpdatesDoNotWaitForBusyScraper(t *testing.T) {
+	started := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	scraper := New(containerListerFunc(func(ctx context.Context) ([]model.DiscoveredContainer, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}), fakeTargetProber{}, nil, nil, time.Minute)
+	scraper.Start(ctx)
+	<-started
+
+	// Scraping cannot receive an interval update until cancellation. All
+	// concurrent API callers must still finish, with the newest value saved.
+	var setters sync.WaitGroup
+	for worker := range 32 {
+		setters.Go(func() {
+			for range 100 {
+				if err := scraper.SetInterval(time.Duration(worker+1) * time.Second); err != nil {
+					t.Errorf("SetInterval() error = %v", err)
+				}
+			}
+		})
+	}
+	finished := make(chan struct{})
+	go func() {
+		setters.Wait()
+		close(finished)
+	}()
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("interval setters blocked while scraper was busy")
+	}
+	if err := scraper.SetInterval(2 * time.Second); err != nil {
+		t.Fatalf("final SetInterval() error = %v", err)
+	}
+	if interval := scraper.currentInterval(); interval != 2*time.Second {
+		t.Fatalf("interval = %s, want latest value 2s", interval)
+	}
+}
+
+func TestRunOncePrunesHistoryWithoutActiveTargets(t *testing.T) {
+	for _, discoveryError := range []error{nil, errors.New("Docker unavailable")} {
+		store := storage.New(time.Minute)
+		first := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+		store.Record("removed-target", []model.MetricFamily{{Samples: []model.MetricSample{
+			{Metric: "up", Value: 1},
+		}}}, first)
+		scraper := New(fakeContainerLister{err: discoveryError}, fakeTargetProber{}, nil, store, time.Second)
+		scraper.now = func() time.Time { return first.Add(2 * time.Minute) }
+		if err := scraper.RunOnce(context.Background()); !errors.Is(err, discoveryError) {
+			t.Fatalf("RunOnce() error = %v, want %v", err, discoveryError)
+		}
+		if series := store.Series("removed-target", "up", nil); len(series) != 0 {
+			t.Fatalf("expired history retained with discovery error %v: %#v", discoveryError, series)
+		}
+	}
+}
+
+func TestScrapeRejectsOversizedResponseWithoutRecordingPartialMetrics(t *testing.T) {
+	for _, size := range []int{maxScrapeBody, maxScrapeBody + 1} {
+		body := "# TYPE up gauge\nup 1\n"
+		padding := size - len(body)
+		body += strings.Repeat("#\n", padding/2) + strings.Repeat("#", padding%2)
+		store := storage.New(time.Minute)
+		scraper := New(nil, nil, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return response(http.StatusOK, body), nil
+		})}, store, time.Second)
+		target, _, ok := scraper.scrapeTarget(context.Background(), model.Target{ID: "target", URL: "http://api/metrics"})
+		if size > maxScrapeBody {
+			if ok || target.Status != model.TargetStatusDown || !strings.Contains(target.LastError, "exceeds") {
+				t.Fatalf("oversized scrape accepted: ok=%v target=%#v", ok, target)
+			}
+			if series := store.Series("target", "up", nil); len(series) != 0 {
+				t.Fatalf("partial metrics stored: %#v", series)
+			}
+		} else if !ok || target.Status != model.TargetStatusUp {
+			t.Fatalf("response at exact limit rejected: %s", target.LastError)
+		}
 	}
 }
 

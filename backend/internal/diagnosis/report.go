@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"math"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -68,6 +69,7 @@ type Finding struct {
 	Service  string `json:"service,omitempty"`
 	Metric   string `json:"metric,omitempty"`
 	Message  string `json:"message"`
+	UIURL    string `json:"uiUrl,omitempty"`
 
 	Delta   *float64 `json:"delta,omitempty"`
 	Rate    *float64 `json:"rate,omitempty"`
@@ -185,8 +187,11 @@ func BuildWithOptions(source Source, now time.Time, window time.Duration, limit 
 		}
 		for _, observation := range selectedObservations(metrics.Families, history) {
 			series := history(observation.metric)
-			if len(series) == 0 {
-				series = fallbackSeries(metrics.Families, observation.metric, now)
+			if len(series) == 0 && target.Status == model.TargetStatusUp && target.LastError == "" {
+				scrapedAt, err := time.Parse(time.RFC3339Nano, target.LastScrapeAt)
+				if err == nil && !scrapedAt.Before(start) && !scrapedAt.After(now) {
+					series = fallbackSeries(metrics.Families, observation.metric, scrapedAt)
+				}
 			}
 			if observation.kind == model.PanelKindGauge {
 				if finding, ok := gaugeFinding(target, observation.metric, series); ok {
@@ -295,6 +300,13 @@ func findingChanged(finding Finding) bool {
 func normalizeFinding(finding *Finding, window Window) {
 	finding.Message = boundedDiagnostic(finding.Message)
 	finding.Suggestion = boundedDiagnostic(finding.Suggestion)
+	if finding.TargetID != "" {
+		query := url.Values{"target": {finding.TargetID}, "start": {window.Start}, "end": {window.End}}
+		if finding.Metric != "" {
+			query.Set("metric", finding.Metric)
+		}
+		finding.UIURL = "/?" + query.Encode()
+	}
 	if finding.Metric != "" && finding.TargetID != "" {
 		finding.Evidence = &EvidenceDescriptor{
 			TargetID: finding.TargetID,
@@ -372,13 +384,14 @@ func boundedSeries(series []model.Series, start, end time.Time) []model.Series {
 			}
 			points = append(points, point)
 		}
+		if len(points) == 0 {
+			continue
+		}
 		if baseline != nil {
 			points = append([]model.SeriesPoint{*baseline}, points...)
 		}
-		if len(points) > 0 {
-			item.Points = points
-			result = append(result, item)
-		}
+		item.Points = points
+		result = append(result, item)
 	}
 	return result
 }
@@ -440,63 +453,77 @@ func fallbackSeries(families []model.MetricFamily, metric string, now time.Time)
 }
 
 func counterFinding(target model.Target, metric string, series []model.Series) (Finding, bool) {
-	var delta, current float64
-	var first, last time.Time
+	var delta, rate float64
 	valid := false
+	complete := true
 	for _, item := range series {
 		points := parsedPoints(item.Points)
 		if len(points) == 0 {
+			complete = false
 			continue
 		}
-		current += points[len(points)-1].value
-		if !valid || points[0].ts.Before(first) {
-			first = points[0].ts
+		valid = true
+		finite := true
+		for _, point := range points {
+			if math.IsNaN(point.value) || math.IsInf(point.value, 0) {
+				finite = false
+				break
+			}
 		}
-		if !valid || points[len(points)-1].ts.After(last) {
-			last = points[len(points)-1].ts
+		elapsed := points[len(points)-1].ts.Sub(points[0].ts).Seconds()
+		if !finite || len(points) < 2 || elapsed <= 0 {
+			complete = false
+			continue
 		}
+		var seriesDelta float64
 		for i := 1; i < len(points); i++ {
 			change := points[i].value - points[i-1].value
 			if change >= 0 {
-				delta += change
+				seriesDelta += change
 			} else {
 				// A decrease is a counter reset; the post-reset value is the
 				// amount accumulated since the reset.
-				delta += points[i].value
+				seriesDelta += points[i].value
 			}
 		}
-		valid = true
+		delta += seriesDelta
+		rate += seriesDelta / elapsed
 	}
 	if !valid {
 		return Finding{}, false
 	}
-	rate := 0.0
-	if elapsed := last.Sub(first).Seconds(); elapsed > 0 {
-		rate = delta / elapsed
-	}
-	return Finding{
+	finding := Finding{
 		Severity: "info",
 		Signal:   "counter",
 		TargetID: target.ID,
 		Service:  target.ServiceName,
 		Metric:   metric,
 		Message:  "counter delta and rate over window",
-		Delta:    floatPtr(delta),
-		Rate:     floatPtr(rate),
-		score:    math.Abs(rate),
-	}, true
+	}
+	if complete {
+		finding.Delta = floatPtr(delta)
+		finding.Rate = floatPtr(rate)
+		finding.score = math.Abs(rate)
+	} else {
+		finding.Message = "counter has insufficient samples or non-finite gaps for a complete delta and rate over window"
+	}
+	return finding, true
 }
 
 func gaugeFinding(target model.Target, metric string, series []model.Series) (Finding, bool) {
 	var current, change, peak float64
 	var latest time.Time
 	valid := false
+	complete := true
 	for _, item := range series {
 		points := parsedPoints(item.Points)
 		if len(points) == 0 {
 			continue
 		}
 		first, last := points[0], points[len(points)-1]
+		if math.IsNaN(first.value) || math.IsInf(first.value, 0) || math.IsNaN(last.value) || math.IsInf(last.value, 0) {
+			complete = false
+		}
 		change += last.value - first.value
 		if !valid || last.ts.After(latest) {
 			latest = last.ts
@@ -504,31 +531,38 @@ func gaugeFinding(target model.Target, metric string, series []model.Series) (Fi
 		} else if last.ts.Equal(latest) {
 			current += last.value
 		}
-		if !valid {
-			peak = points[0].value
-		}
-		for _, point := range points[1:] {
-			if point.value > peak {
+		for _, point := range points {
+			if math.IsNaN(point.value) || math.IsInf(point.value, 0) {
+				continue
+			}
+			if !valid || point.value > peak {
 				peak = point.value
 			}
+			valid = true
 		}
-		valid = true
 	}
 	if !valid {
 		return Finding{}, false
 	}
-	return Finding{
+	finding := Finding{
 		Severity: "info",
 		Signal:   "gauge",
 		TargetID: target.ID,
 		Service:  target.ServiceName,
 		Metric:   metric,
 		Message:  "gauge current, change, and peak over window",
-		Current:  floatPtr(current),
-		Change:   floatPtr(change),
 		Peak:     floatPtr(peak),
-		score:    math.Abs(change),
-	}, true
+	}
+	if complete {
+		finding.Current = floatPtr(current)
+		finding.Change = floatPtr(change)
+		if finding.Change != nil {
+			finding.score = math.Abs(change)
+		}
+	} else {
+		finding.Message = "gauge peak over window; current and change unavailable because series endpoints are non-finite"
+	}
+	return finding, true
 }
 
 type parsedPoint struct {
@@ -549,7 +583,12 @@ func parsedPoints(points []model.SeriesPoint) []parsedPoint {
 	return parsed
 }
 
-func floatPtr(value float64) *float64 { return &value }
+func floatPtr(value float64) *float64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return nil
+	}
+	return &value
+}
 
 func severityRank(value string) int {
 	switch value {

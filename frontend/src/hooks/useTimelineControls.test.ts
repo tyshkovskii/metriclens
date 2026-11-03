@@ -1,5 +1,43 @@
-import { describe, expect, it } from "vitest";
-import { isNearLiveEdge, liveSnap } from "./useTimelineControls";
+import { useState } from "react";
+import { act, renderHook } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { isNearLiveEdge, liveSnap, useTimelineControls } from "./useTimelineControls";
+import type { ScrubPosition } from "./useScrub";
+
+vi.mock("./useLiveDomain", () => ({ useLiveDomain: () => [540_000, 600_000] }));
+
+describe("frozen timeline navigation", () => {
+  function useFrozenTimeline(initial: ScrubPosition) {
+    const [position, setPosition] = useState<ScrubPosition | null>(initial);
+    return useTimelineControls("t", 60_000, [], () => {}, position, setPosition);
+  }
+
+  it("keeps historical windows frozen when stepping or selecting their right edge", () => {
+    const { result } = renderHook(() => useFrozenTimeline({ t: 59_000, domain: [0, 60_000] }));
+    act(() => {
+      result.current.nudge(1);
+    });
+    expect(result.current.scrubbing).toBe(true);
+    expect(result.current.t).toBe(60_000);
+    act(() => {
+      result.current.scrubTo(60_000);
+    });
+    expect(result.current.scrubbing).toBe(true);
+    expect(result.current.domain).toEqual([0, 60_000]);
+    act(() => {
+      result.current.goLive();
+    });
+    expect(result.current.scrubbing).toBe(false);
+  });
+
+  it("retains snap-to-live for a window whose edge is actually current", () => {
+    const { result } = renderHook(() => useFrozenTimeline({ t: 599_000, domain: [540_000, 600_000] }));
+    act(() => {
+      result.current.nudge(1);
+    });
+    expect(result.current.scrubbing).toBe(false);
+  });
+});
 
 // The snap zone is max(2500ms floor, 2% of the visible span). Small windows are
 // governed by the floor; large windows by the 2% term. These spans bracket the

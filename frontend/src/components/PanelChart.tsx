@@ -36,7 +36,13 @@ export function ChartBody({
   domain: [number, number] | null;
 }) {
   const named = useMemo(() => nameSeries(transformSeries(kind, series)), [kind, series]);
-  const rows = useMemo(() => buildRows(named, kind === "gauge" ? null : 0), [named, kind]);
+  const rows = useMemo(
+    () =>
+      buildRows(named, kind === "gauge" ? null : 0).filter(
+        (row) => !domain || (row.ts >= domain[0] && row.ts <= domain[1]),
+      ),
+    [named, kind, domain],
+  );
 
   if (rows.length < 2) {
     return <EmptyChart />;
@@ -129,6 +135,7 @@ function StackedChart({
         <CartesianGrid stroke="var(--edge)" strokeDasharray="3 3" vertical={false} />
         <XAxis
           axisLine={{ stroke: "var(--edge)" }}
+          allowDataOverflow
           dataKey="ts"
           domain={domain ?? ["dataMin", "dataMax"]}
           tick={TICK}
@@ -174,6 +181,7 @@ function GaugeChart({
         <CartesianGrid stroke="var(--edge)" strokeDasharray="3 3" vertical={false} />
         <XAxis
           axisLine={{ stroke: "var(--edge)" }}
+          allowDataOverflow
           dataKey="ts"
           domain={domain ?? ["dataMin", "dataMax"]}
           tick={TICK}
@@ -185,7 +193,6 @@ function GaugeChart({
         <Tooltip content={renderTip} cursor={{ stroke: "var(--edge)" }} isAnimationActive={false} />
         {named.map((name, index) => (
           <Line
-            connectNulls
             dataKey={name}
             dot={false}
             isAnimationActive={false}

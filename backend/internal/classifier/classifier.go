@@ -2,6 +2,7 @@ package classifier
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -290,8 +291,12 @@ func observe(history SeriesLookup, metric string) behavior {
 	}
 	for _, series := range history(metric) {
 		for i := 1; i < len(series.Points); i++ {
+			previous, current := series.Points[i-1].Value, series.Points[i].Value
+			if math.IsNaN(previous) || math.IsInf(previous, 0) || math.IsNaN(current) || math.IsInf(current, 0) {
+				continue
+			}
 			b.deltas++
-			switch delta := series.Points[i].Value - series.Points[i-1].Value; {
+			switch delta := current - previous; {
 			case delta > 0:
 				b.increases++
 			case delta < 0:

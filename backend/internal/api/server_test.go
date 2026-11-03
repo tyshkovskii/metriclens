@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -736,6 +737,13 @@ func TestReport(t *testing.T) {
 	}
 	if body.Window.DurationMs != 2*60*1000 {
 		t.Fatalf("duration = %d, want 120000", body.Window.DurationMs)
+	}
+	link, err := url.Parse(body.Findings[0].UIURL)
+	if err != nil || link == nil {
+		t.Fatalf("invalid finding UI URL: %v", err)
+	}
+	if link.Query().Get("target") != target.ID || link.Query().Get("start") != body.Window.Start || link.Query().Get("end") != body.Window.End {
+		t.Fatalf("UI URL = %q, want target and report window", body.Findings[0].UIURL)
 	}
 }
 

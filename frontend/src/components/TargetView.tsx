@@ -5,6 +5,7 @@ import { useTargetData } from "../hooks/useTargetData";
 import { useTimelineControls } from "../hooks/useTimelineControls";
 import { useWatchedSeries } from "../hooks/useWatchedSeries";
 import { isEditable } from "../lib/dom";
+import { shortDuration } from "../lib/format";
 import { chartKindForMetric, chartMetric } from "../lib/series";
 import { expandedKey, loadStringArray, pinsKey, saveStringArray } from "../lib/storage";
 import type { ChartKind, MetricFamily, SuggestedPanel, Target } from "../types";
@@ -21,16 +22,19 @@ export function TargetView({
   scrapeIntervalMs,
   scrubPosition,
   onScrubPosition,
+  linkedMetric,
 }: {
   target: Target;
   retentionMs: number;
   scrapeIntervalMs: number;
   scrubPosition: ScrubPosition | null;
   onScrubPosition: Dispatch<SetStateAction<ScrubPosition | null>>;
+  linkedMetric: string | null;
 }) {
   const pausedRef = useRef(false);
+  const [openedAt] = useState(Date.now);
   const searchRef = useRef<HTMLInputElement | null>(null);
-  const [search, setSearch] = useState(() => searchMemory.get(target.id) ?? "");
+  const [search, setSearch] = useState(() => linkedMetric ?? searchMemory.get(target.id) ?? "");
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(loadStringArray(expandedKey(target.id))),
   );
@@ -46,6 +50,18 @@ export function TargetView({
 
   const { data, lastUpdated, refresh, previousValue } = useTargetData(target.id, pausedRef, scrapeIntervalMs);
   const families = useMemo(() => data.metrics?.families ?? [], [data.metrics]);
+  const linkedFamily = families.find(
+    (family) =>
+      family.name === linkedMetric || family.samples.some((sample) => sample.metric === linkedMetric),
+  )?.name;
+  const openedLink = useRef(false);
+
+  useEffect(() => {
+    if (linkedFamily && !openedLink.current) {
+      openedLink.current = true;
+      setExpanded((current) => new Set(current).add(linkedFamily));
+    }
+  }, [linkedFamily]);
 
   const sampleNames = useMemo(() => {
     const names = new Set<string>();
@@ -107,7 +123,14 @@ export function TargetView({
     return [...names].sort();
   }, [pinned, expanded, families]);
 
-  const seriesByMetric = useWatchedSeries(target.id, watched, pausedRef, scrubbing, scrapeIntervalMs);
+  const { seriesByMetric, error: liveHistoryError } = useWatchedSeries(
+    target.id,
+    watched,
+    pausedRef,
+    scrubbing,
+    scrapeIntervalMs,
+  );
+  const historyError = scrubbing ? controls.error : liveHistoryError;
 
   const toggleExpand = useCallback((name: string) => {
     setExpanded((current) => {
@@ -143,13 +166,34 @@ export function TargetView({
       />
 
       <main className="mx-auto max-w-6xl px-6 pb-16">
+        {scrubPosition ? (
+          <p className="py-3 text-xs text-muted" role="status">
+            Viewing samples from {new Date(scrubPosition.domain[0]).toISOString()} to{" "}
+            {new Date(scrubPosition.domain[1]).toISOString()}. Target status and metric descriptions are
+            current. History is retained for {shortDuration(retentionMs)}.
+            {scrubPosition.domain[1] < openedAt - retentionMs
+              ? " This time window has expired; historical samples are unavailable."
+              : ""}
+          </p>
+        ) : null}
         {data.error ? <p className="py-3 text-xs text-danger">{data.error}</p> : null}
+        {historyError ? (
+          <p className="py-3 text-xs text-danger" role="alert">
+            History unavailable: {historyError}
+          </p>
+        ) : null}
         {target.status === "down" && target.lastError ? (
           <p className="py-3 text-xs text-warn">target down — {target.lastError}</p>
         ) : null}
 
         {data.metrics ? (
           <>
+            {linkedMetric && !linkedFamily ? (
+              <p className="py-3 text-xs text-warn" role="status">
+                Linked metric “{linkedMetric}” is not in the current scrape. Its history may have expired or
+                the metric may have been removed.
+              </p>
+            ) : null}
             <MetricList
               domain={chartDomain}
               expanded={expanded}
@@ -165,6 +209,7 @@ export function TargetView({
                       active: true,
                       loading: controls.loading,
                       t: controls.t,
+                      start: controls.domain[0],
                       seriesByMetric: controls.series,
                     }
                   : null

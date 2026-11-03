@@ -1,6 +1,9 @@
 package diagnosis
 
 import (
+	"encoding/json"
+	"math"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +11,177 @@ import (
 
 	"metriclens/backend/internal/model"
 )
+
+func TestGaugePeakIncludesFirstSampleOfEveryLabelSeries(t *testing.T) {
+	finding, ok := gaugeFinding(model.Target{ID: "api"}, "queue_depth", []model.Series{
+		{Points: []model.SeriesPoint{{TS: "2026-06-06T12:00:00Z", Value: 2}, {TS: "2026-06-06T12:01:00Z", Value: 1}}},
+		{Points: []model.SeriesPoint{{TS: "2026-06-06T12:00:00Z", Value: 9}}},
+	})
+	if !ok || finding.Peak == nil || *finding.Peak != 9 {
+		t.Fatalf("finding = %#v, want peak 9 from another label series", finding)
+	}
+}
+
+func TestCounterRateAggregatesIndependentLabelSeries(t *testing.T) {
+	finding, ok := counterFinding(model.Target{ID: "api"}, "requests_total", []model.Series{
+		{Points: []model.SeriesPoint{{TS: "2026-06-06T12:00:00Z", Value: 0}, {TS: "2026-06-06T12:02:00Z", Value: 120}}},
+		{Points: []model.SeriesPoint{{TS: "2026-06-06T12:01:00Z", Value: 100}, {TS: "2026-06-06T12:02:00Z", Value: 60}}},
+	})
+	if !ok || finding.Delta == nil || *finding.Delta != 180 || finding.Rate == nil || *finding.Rate != 2 {
+		t.Fatalf("finding = %#v, want reset-aware total delta 180 and per-series rate sum 2/s", finding)
+	}
+}
+
+func TestDiagnosticFindingsHandleNonFiniteSamples(t *testing.T) {
+	series := []model.Series{{Points: []model.SeriesPoint{
+		{TS: "2026-06-06T12:00:00Z", Value: 1},
+		{TS: "2026-06-06T12:00:15Z", Value: math.NaN()},
+		{TS: "2026-06-06T12:00:30Z", Value: math.Inf(1)},
+		{TS: "2026-06-06T12:01:00Z", Value: 3},
+	}}}
+	for _, build := range []func(model.Target, string, []model.Series) (Finding, bool){counterFinding, gaugeFinding} {
+		finding, ok := build(model.Target{}, "metric", series)
+		if !ok {
+			t.Fatal("finite observations were discarded")
+		}
+		if _, err := json.Marshal(finding); err != nil {
+			t.Fatalf("finding contains nonfinite JSON values: %v", err)
+		}
+	}
+	series[0].Points = []model.SeriesPoint{{TS: "2026-06-06T12:00:00Z", Value: math.NaN()}}
+	if _, ok := gaugeFinding(model.Target{}, "metric", series); ok {
+		t.Fatal("a nonfinite-only gauge should have no numeric finding")
+	}
+}
+
+func TestGaugeDoesNotReplaceUnavailableEndpointsWithFiniteSamples(t *testing.T) {
+	for _, unavailable := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		for _, values := range [][]float64{{1, unavailable}, {unavailable, 1}} {
+			series := []model.Series{
+				{Points: []model.SeriesPoint{{TS: "2026-06-06T12:00:00Z", Value: 2}, {TS: "2026-06-06T12:01:00Z", Value: 3}}},
+				{Points: []model.SeriesPoint{{TS: "2026-06-06T12:00:00Z", Value: values[0]}, {TS: "2026-06-06T12:01:00Z", Value: values[1]}}},
+			}
+			finding, ok := gaugeFinding(model.Target{}, "queue_depth", series)
+			if !ok || finding.Current != nil || finding.Change != nil || finding.Peak == nil || *finding.Peak != 3 || !strings.Contains(finding.Message, "unavailable") {
+				t.Fatalf("finding = %#v, want finite peak without claiming a complete current or change", finding)
+			}
+		}
+	}
+}
+
+func TestCounterDoesNotBridgeNonFiniteGaps(t *testing.T) {
+	for _, unavailable := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		finding, ok := counterFinding(model.Target{}, "requests_total", []model.Series{{Points: []model.SeriesPoint{
+			{TS: "2026-06-06T12:00:00Z", Value: 10},
+			{TS: "2026-06-06T12:00:30Z", Value: unavailable},
+			{TS: "2026-06-06T12:01:00Z", Value: 15},
+		}}})
+		if !ok || finding.Delta != nil || finding.Rate != nil || !strings.Contains(finding.Message, "non-finite gaps") {
+			t.Fatalf("finding = %#v, want unavailable rate and delta across a nonfinite gap", finding)
+		}
+	}
+}
+
+func TestDiagnosticFindingsOmitOverflowedAggregates(t *testing.T) {
+	series := []model.Series{
+		{Points: []model.SeriesPoint{{TS: "2026-06-06T12:00:00Z", Value: 0}, {TS: "2026-06-06T12:01:00Z", Value: math.MaxFloat64}}},
+		{Points: []model.SeriesPoint{{TS: "2026-06-06T12:00:00Z", Value: 0}, {TS: "2026-06-06T12:01:00Z", Value: math.MaxFloat64}}},
+	}
+	for _, build := range []func(model.Target, string, []model.Series) (Finding, bool){counterFinding, gaugeFinding} {
+		finding, ok := build(model.Target{}, "metric", series)
+		if !ok {
+			t.Fatal("finite input observations were discarded")
+		}
+		if _, err := json.Marshal(finding); err != nil {
+			t.Fatalf("finding aggregate overflows JSON: %v", err)
+		}
+	}
+}
+
+func TestCounterFindingDoesNotInventRateForInsufficientSamples(t *testing.T) {
+	for _, series := range [][]model.Series{
+		{{Points: []model.SeriesPoint{{TS: "2026-06-06T12:00:00Z", Value: 1}}}},
+		{{Points: []model.SeriesPoint{{TS: "2026-06-06T12:00:00Z", Value: 1}, {TS: "2026-06-06T12:00:00Z", Value: 2}}}},
+		{
+			{Points: []model.SeriesPoint{{TS: "2026-06-06T12:00:00Z", Value: 1}, {TS: "2026-06-06T12:01:00Z", Value: 2}}},
+			{Points: []model.SeriesPoint{{TS: "2026-06-06T12:01:00Z", Value: 3}}},
+		},
+	} {
+		finding, ok := counterFinding(model.Target{}, "requests_total", series)
+		if !ok || finding.Delta != nil || finding.Rate != nil || !strings.Contains(finding.Message, "insufficient samples") {
+			t.Fatalf("finding = %#v, want explicit insufficient evidence without zero or partial rate", finding)
+		}
+	}
+}
+
+func TestBuildDoesNotPresentCachedOrBaselineOnlySamplesAsCurrent(t *testing.T) {
+	now := time.Date(2026, 6, 6, 12, 2, 0, 0, time.UTC)
+	for _, target := range []model.Target{
+		{ID: "api", Status: model.TargetStatusUp, LastScrapeAt: "2026-06-06T12:00:00Z"},
+		{ID: "api", Status: model.TargetStatusDown, LastError: "connection refused", LastScrapeAt: now.Format(time.RFC3339Nano)},
+		{ID: "api", Status: model.TargetStatusUp},
+	} {
+		source := fakeSource{
+			targets: []model.Target{target},
+			metrics: map[string]model.TargetMetricsResponse{"api": {Families: []model.MetricFamily{
+				{Name: "queue_depth", Type: model.MetricTypeGauge, HasType: true, Samples: []model.MetricSample{{Metric: "queue_depth", Value: 9}}},
+			}}},
+			series: map[string][]model.Series{"api": {{Metric: "queue_depth", Points: []model.SeriesPoint{
+				{TS: "2026-06-06T12:00:00Z", Value: 9},
+			}}}},
+		}
+		for _, finding := range Build(source, now, time.Minute, 20).Findings {
+			if finding.Signal == "gauge" || finding.Signal == "counter" {
+				t.Fatalf("target %#v produced stale numeric finding %#v", target, finding)
+			}
+		}
+	}
+}
+
+func TestBuildUsesActualTimestampForFreshFallbackSamples(t *testing.T) {
+	now := time.Date(2026, 6, 6, 12, 2, 0, 0, time.UTC)
+	target := model.Target{ID: "api", Status: model.TargetStatusUp, LastScrapeAt: now.Add(-5 * time.Second).Format(time.RFC3339Nano)}
+	source := fakeSource{
+		targets: []model.Target{target},
+		metrics: map[string]model.TargetMetricsResponse{"api": {Families: []model.MetricFamily{
+			{Name: "queue_depth", Type: model.MetricTypeGauge, HasType: true, Samples: []model.MetricSample{{Metric: "queue_depth", Value: 9}}},
+		}}},
+	}
+	report := Build(source, now, time.Minute, 20)
+	if len(report.Findings) != 1 || report.Findings[0].Current == nil || *report.Findings[0].Current != 9 {
+		t.Fatalf("findings = %#v, want fresh gauge sample fallback", report.Findings)
+	}
+}
+
+func TestFindingLinksPreserveTargetMetricAndEvidenceWindow(t *testing.T) {
+	now := time.Date(2026, 11, 2, 12, 0, 0, 123456789, time.UTC)
+	target := model.Target{ID: "api &worker/#1", ServiceName: "api", Status: model.TargetStatusUp}
+	source := fakeSource{
+		targets: []model.Target{target},
+		metrics: map[string]model.TargetMetricsResponse{target.ID: {
+			Families: []model.MetricFamily{{Name: "queue:depth", Samples: []model.MetricSample{{Metric: "queue:depth", Value: 3}}}},
+		}},
+	}
+	report := Build(source, now, time.Minute, MaxLimit)
+	if len(report.Findings) == 0 {
+		t.Fatal("expected metric findings")
+	}
+	for _, finding := range report.Findings {
+		link, err := url.Parse(finding.UIURL)
+		if err != nil {
+			t.Fatalf("parse finding UI URL: %v", err)
+		}
+		query := link.Query()
+		if link.IsAbs() || link.Host != "" || link.Path != "/" || query.Get("target") != target.ID || query.Get("metric") != finding.Metric || query.Get("start") != report.Window.Start || query.Get("end") != report.Window.End {
+			t.Fatalf("finding link = %q, want relative target/metric/window link", finding.UIURL)
+		}
+	}
+	// Time-window changes update the link without changing the finding's identity.
+	next := Build(source, now.Add(time.Second), time.Minute, MaxLimit)
+	if report.Findings[0].ID != next.Findings[0].ID || report.Findings[0].UIURL == next.Findings[0].UIURL {
+		t.Fatal("finding identity or time-window link did not stay independent")
+	}
+}
 
 type fakeSource struct {
 	targets []model.Target
