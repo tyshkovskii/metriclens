@@ -128,6 +128,9 @@ func (s *Server) compareBaseline(from storedMarker, toTime time.Time, baselineFr
 	if !baselineFrom.time.Before(end) {
 		return time.Time{}, time.Time{}, errors.New("baselineFrom marker must be before baselineTo or from")
 	}
+	if end.After(from.time) {
+		return time.Time{}, time.Time{}, errors.New("baseline must end at or before the from marker")
+	}
 	return baselineFrom.time, end, nil
 }
 

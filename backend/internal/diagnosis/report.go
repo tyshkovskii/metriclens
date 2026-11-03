@@ -569,7 +569,7 @@ func counterFinding(target model.Target, metric string, series []model.Series) (
 			complete = false
 			continue
 		}
-		seriesDelta := increase(points)
+		seriesDelta := counterIncrease(points)
 		delta += seriesDelta
 		rate += seriesDelta / elapsed
 	}
@@ -667,9 +667,9 @@ func parsedPoints(points []model.SeriesPoint) []parsedPoint {
 	return parsed
 }
 
-// increase sums a counter's growth across ordered samples. A decrease is a
+// counterIncrease sums a counter's growth across ordered samples. A decrease is a
 // counter reset; the post-reset value is the amount accumulated since then.
-func increase(points []parsedPoint) float64 {
+func counterIncrease(points []parsedPoint) float64 {
 	var total float64
 	for i := 1; i < len(points); i++ {
 		if change := points[i].value - points[i-1].value; change >= 0 {

@@ -1105,7 +1105,9 @@ func TestCompareResolvesBaselineWindow(t *testing.T) {
 	earlier := createMarker(t, server)
 	now = now.Add(time.Minute)
 	from := createMarker(t, server)
-	now = now.Add(2 * time.Minute)
+	now = now.Add(time.Minute)
+	later := createMarker(t, server)
+	now = now.Add(time.Minute)
 
 	for query, wantStart := range map[string]string{
 		"":                            "2026-06-06T11:59:00Z",
@@ -1122,9 +1124,10 @@ func TestCompareResolvesBaselineWindow(t *testing.T) {
 		}
 	}
 	for query, want := range map[string]int{
-		"&baselineFrom=missing":     http.StatusNotFound,
-		"&baselineTo=" + earlier.ID: http.StatusBadRequest,
-		"&baselineFrom=" + from.ID:  http.StatusBadRequest,
+		"&baselineFrom=missing":                                   http.StatusNotFound,
+		"&baselineTo=" + earlier.ID:                               http.StatusBadRequest,
+		"&baselineFrom=" + from.ID:                                http.StatusBadRequest,
+		"&baselineFrom=" + earlier.ID + "&baselineTo=" + later.ID: http.StatusBadRequest,
 	} {
 		rec := httptest.NewRecorder()
 		server.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/compare?from="+from.ID+query, nil))

@@ -100,6 +100,12 @@ func TestBuildReportsErrorRatioAndLatencyVerdicts(t *testing.T) {
 		t.Fatalf("latency evidence = %#v, want histogram sample names over both windows", latency.Evidence)
 	}
 
+	degraded["errors"] = 310
+	repeated := verdicts(BuildWithOptions(verdictSource(t0, t1, t2, healthy, degraded), t2, time.Minute, MaxLimit, options))
+	if repeated["error_ratio"].ID != errorRatio.ID || repeated["error_ratio"].Message == errorRatio.Message {
+		t.Fatalf("error ratio IDs %q and %q, want one identity for the same verdict despite new values", errorRatio.ID, repeated["error_ratio"].ID)
+	}
+
 	steady := BuildWithOptions(verdictSource(t0, t1, t2, healthy, healthy), t2, time.Minute, MaxLimit, options)
 	if found := verdicts(steady); found["error_ratio"].Verdict != "unchanged" || found["latency_p95"].Verdict != "unchanged" || steady.Status != "ok" {
 		t.Fatalf("steady verdicts = %#v, want unchanged", found)
@@ -113,6 +119,35 @@ func TestBuildReportsErrorRatioAndLatencyVerdicts(t *testing.T) {
 	sparse := BuildWithOptions(verdictSource(t0, t1, t2, healthy, quiet), t2, time.Minute, MaxLimit, BuildOptions{BaselineStart: t0, BaselineEnd: t1})
 	if found := verdicts(sparse); found["error_ratio"].Verdict != "inconclusive" || found["latency_p95"].Verdict != "inconclusive" || found["error_ratio"].Candidate != nil {
 		t.Fatalf("sparse verdicts = %#v, want inconclusive without values", found)
+	}
+}
+
+func TestLatencyVerdictIsInconclusiveWithoutComparableBuckets(t *testing.T) {
+	t0 := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	t1, t2 := t0.Add(time.Minute), t0.Add(2*time.Minute)
+	baseline, compared := timeRange{start: t0, end: t1}, timeRange{start: t1, end: t2}
+	bucket := func(le string, points ...model.SeriesPoint) model.Series {
+		return model.Series{Metric: "request_seconds_bucket", Labels: map[string]string{"le": le}, Points: points}
+	}
+	at := func(ts time.Time, value float64) model.SeriesPoint {
+		return model.SeriesPoint{TS: ts.Format(time.RFC3339Nano), Value: value}
+	}
+	// The le="0.5" bucket is replaced by le="0.25" after the baseline.
+	relayout := []model.Series{
+		bucket("0.5", at(t0, 0), at(t1, 900)),
+		bucket("0.25", at(t2, 500)),
+		bucket("+Inf", at(t0, 0), at(t1, 1000), at(t2, 2000)),
+	}
+	if finding := latencyFinding(model.Target{}, "request_seconds", "seconds", relayout, baseline, compared); finding.Verdict != "inconclusive" {
+		t.Fatalf("relayout verdict = %#v, want inconclusive", finding)
+	}
+	// Both windows have their p95 past the largest finite bucket.
+	overflow := []model.Series{
+		bucket("1", at(t0, 0), at(t1, 10), at(t2, 20)),
+		bucket("+Inf", at(t0, 0), at(t1, 100), at(t2, 300)),
+	}
+	if finding := latencyFinding(model.Target{}, "request_seconds", "seconds", overflow, baseline, compared); finding.Verdict != "inconclusive" {
+		t.Fatalf("overflow verdict = %#v, want inconclusive", finding)
 	}
 }
 

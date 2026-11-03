@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"metriclens/backend/internal/classifier"
@@ -63,10 +64,17 @@ func latencyFinding(target model.Target, metric, unit string, buckets []model.Se
 	}
 	before, beforeBeyond := bucketP95(bounds, baseCumulative)
 	after, afterBeyond := bucketP95(bounds, cumulative)
+	if beforeBeyond && afterBeyond {
+		return inconclusiveFinding(finding, fmt.Sprintf("p95 inconclusive: above the largest finite bucket bound %s in both windows", formatQuantile(before, false, unit)))
+	}
 	split := tailBound(bounds, baseCumulative)
 	baseSlow, slow := baseTotal-baseCumulative[split], total-cumulative[split]
 	z := twoProportionZ(baseSlow, baseTotal, slow, total)
-	outcome := verdict(z, after >= before*(1+minLatencyRelativeShift), after <= before*(1-minLatencyRelativeShift))
+	// A p95 past the largest finite bound is only a lower bound, so crossing
+	// that bound counts as a meaningful shift in its direction.
+	worse := after >= before*(1+minLatencyRelativeShift) || (afterBeyond && !beforeBeyond)
+	better := after <= before*(1-minLatencyRelativeShift) || (beforeBeyond && !afterBeyond)
+	outcome := verdict(z, worse, better)
 	finding.Baseline, finding.Candidate = floatPtr(before), floatPtr(after)
 	finding.Message = fmt.Sprintf("p95 %s before, %s after; share above %s went from %.1f%% to %.1f%% (%.0f and %.0f observations): %s",
 		formatQuantile(before, beforeBeyond, unit), formatQuantile(after, afterBeyond, unit), formatQuantile(bounds[split], false, unit),
@@ -96,25 +104,27 @@ func withVerdict(finding Finding, outcome string) Finding {
 		finding.score = 600
 	case "improved":
 		finding.score = 20
+	case "inconclusive":
+		finding.score = 5
 	default:
 		finding.score = 1
 	}
+	// Messages carry the measured values, so the identity uses the verdict
+	// instead and stays the same across repeated comparisons.
+	finding.stableIdentity = strings.Join([]string{finding.Signal, finding.TargetID, finding.Service, finding.Metric, outcome}, "\x00")
 	return finding
 }
 
 func inconclusiveFinding(finding Finding, message string) Finding {
-	finding.Severity = "info"
-	finding.Verdict = "inconclusive"
 	finding.Message = message
-	finding.score = 5
-	return finding
+	return withVerdict(finding, "inconclusive")
 }
 
 // requestCounts sums reset-aware request increases over a window and the
 // part of them whose status label marks a server error.
 func requestCounts(series []model.Series, window timeRange) (errors, total float64, ok bool) {
 	for _, item := range series {
-		increase, finite := seriesIncrease(item, window)
+		increase, _, finite := seriesIncrease(item, window)
 		if !finite {
 			return 0, 0, false
 		}
@@ -127,7 +137,8 @@ func requestCounts(series []model.Series, window timeRange) (errors, total float
 }
 
 // bucketCounts sums reset-aware histogram bucket increases over a window by
-// upper bound, aggregating every other label.
+// upper bound, aggregating every other label. Only buckets sampled inside the
+// window count, so a bucket layout change between windows is detectable.
 func bucketCounts(buckets []model.Series, window timeRange) (map[float64]float64, bool) {
 	counts := map[float64]float64{}
 	for _, item := range buckets {
@@ -135,36 +146,41 @@ func bucketCounts(buckets []model.Series, window timeRange) (map[float64]float64
 		if err != nil {
 			continue
 		}
-		increase, finite := seriesIncrease(item, window)
+		increase, sampled, finite := seriesIncrease(item, window)
 		if !finite {
 			return nil, false
 		}
-		counts[bound] += increase
+		if sampled {
+			counts[bound] += increase
+		}
 	}
 	return counts, true
 }
 
 // seriesIncrease is a counter's reset-aware increase over (start, end],
 // measured from its last sample at or before start. Adjacent windows therefore
-// split growth exactly, even when a sample lands on their shared boundary. It
-// is not finite when a sample in that span is NaN or infinite.
-func seriesIncrease(item model.Series, window timeRange) (float64, bool) {
+// split growth exactly, even when a sample lands on their shared boundary.
+// sampled reports a sample inside the window; finite is false when a sample
+// in that span is NaN or infinite.
+func seriesIncrease(item model.Series, window timeRange) (increase float64, sampled, finite bool) {
 	var points []parsedPoint
 	for _, point := range parsedPoints(item.Points) {
 		if point.ts.After(window.end) {
 			break
 		}
-		if !point.ts.After(window.start) {
+		if point.ts.After(window.start) {
+			sampled = true
+		} else {
 			points = points[:0]
 		}
 		points = append(points, point)
 	}
 	for _, point := range points {
 		if math.IsNaN(point.value) || math.IsInf(point.value, 0) {
-			return 0, false
+			return 0, sampled, false
 		}
 	}
-	return increase(points), true
+	return counterIncrease(points), sampled, true
 }
 
 func sameBounds(bounds []float64, counts map[float64]float64) bool {

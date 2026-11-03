@@ -189,6 +189,10 @@ func TestMCPToolsThroughOfficialClient(t *testing.T) {
 	if !invalidCatalog.IsError {
 		t.Fatalf("invalid catalog result = %#v, want IsError", invalidCatalog)
 	}
+	invalidBaseline := callMCPTool(t, session, "compare_experiment", map[string]any{"from": marker.ID, "baselineFrom": "missing"})
+	if !invalidBaseline.IsError {
+		t.Fatalf("invalid baseline result = %#v, want IsError", invalidBaseline)
+	}
 	invalidEvidence := callMCPTool(t, session, "get_metric_evidence", map[string]any{"metrics": []string{"up"}})
 	if !invalidEvidence.IsError {
 		t.Fatalf("invalid evidence result = %#v, want IsError", invalidEvidence)
