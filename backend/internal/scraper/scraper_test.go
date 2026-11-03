@@ -426,7 +426,7 @@ func TestDisappearedTargetReportsHowItsContainerEnded(t *testing.T) {
 	}
 	events := scraper.LifecycleEvents(first, first.Add(5*time.Second))
 	last := events[len(events)-1]
-	if last.Kind != model.LifecycleEventDisappeared || last.Error != "container exited with code 137, OOM killed" {
+	if last.Kind != model.LifecycleEventDisappeared || last.Error != "container exited with code 137, OOM killed after scrape error: GET http://worker:9090/metrics failed" {
 		t.Fatalf("events = %#v, want disappearance explained by the container exit", events)
 	}
 }
@@ -434,8 +434,8 @@ func TestDisappearedTargetReportsHowItsContainerEnded(t *testing.T) {
 func TestNoMetricsEndpointOnlyForTargetsNeverScraped(t *testing.T) {
 	scrapedTarget := model.Target{ID: "api-1", HistoryID: "compose:shop/api/1", ServiceName: "api", URL: "http://api:8080/metrics", Status: model.TargetStatusUp}
 	brokenTarget := scrapedTarget
-	brokenTarget.URL, brokenTarget.Status = "", model.TargetStatusDown
-	redis := model.Target{ID: "redis-1", HistoryID: "compose:shop/redis/1", ServiceName: "redis", Status: model.TargetStatusDown}
+	brokenTarget.URL, brokenTarget.Status, brokenTarget.NoMetricsEndpoint = "", model.TargetStatusDown, true
+	redis := model.Target{ID: "redis-1", HistoryID: "compose:shop/redis/1", ServiceName: "redis", Status: model.TargetStatusDown, NoMetricsEndpoint: true}
 	prober := &sequenceTargetProber{sequences: [][]model.Target{{scrapedTarget, redis}, {brokenTarget, redis}}}
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return response(http.StatusOK, "# TYPE up gauge\nup 1\n"), nil

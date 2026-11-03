@@ -87,7 +87,9 @@ func (d *DockerDiscovery) ContainerExit(ctx context.Context, id string) (string,
 
 // StoppedServices explains requested Compose services in the discovery scope
 // whose containers are not running, keyed by service, so readiness can report
-// how a service stopped instead of only that it is missing.
+// how a service stopped instead of only that it is missing. Outside a Compose
+// project it explains nothing, since stopped containers from unrelated
+// projects often share service names.
 func (d *DockerDiscovery) StoppedServices(ctx context.Context, services []string) (map[string]string, error) {
 	result, err := d.client.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
@@ -95,12 +97,15 @@ func (d *DockerDiscovery) StoppedServices(ctx context.Context, services []string
 	}
 	composeProject := d.selfComposeProject(result.Items)
 	stopped := map[string]string{}
+	if composeProject == "" {
+		return stopped, nil
+	}
 	for _, c := range result.Items {
 		service := c.Labels[composeServiceLabel]
 		// One-off `docker compose run` containers share the service label but
 		// say nothing about the service's own containers.
 		oneOff := c.Labels[composeOneOffLabel] == "True"
-		if c.State == container.StateRunning || oneOff || !slices.Contains(services, service) || d.excluded(c) || (composeProject != "" && c.Labels[composeProjectLabel] != composeProject) {
+		if c.State == container.StateRunning || oneOff || !slices.Contains(services, service) || d.excluded(c) || c.Labels[composeProjectLabel] != composeProject {
 			continue
 		}
 		if reason, ok := d.ContainerExit(ctx, c.ID); ok {

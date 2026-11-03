@@ -187,8 +187,11 @@ func (s *Scraper) RunOnce(ctx context.Context) error {
 				s.scraped[target.HistoryID] = struct{}{}
 			}
 		}
-		_, everScraped := s.scraped[target.HistoryID]
-		target.NoMetricsEndpoint = target.URL == "" && !everScraped
+		// The prober cannot tell a lost endpoint from one that never existed;
+		// a service scraped before is failing, not uninstrumented.
+		if _, everScraped := s.scraped[target.HistoryID]; everScraped {
+			target.NoMetricsEndpoint = false
+		}
 		nextTargets[target.ID] = target
 	}
 	exits := s.exitReasons(ctx, nextTargets)
@@ -365,6 +368,9 @@ func (s *Scraper) recordLifecycleEventsLocked(next map[string]model.Target, exit
 		reason := target.LastError
 		if exit, ok := exits[identity]; ok {
 			reason = exit
+			if target.LastError != "" {
+				reason += " after scrape error: " + target.LastError
+			}
 		}
 		s.events = append(s.events, model.LifecycleEvent{
 			At:            at.Format(time.RFC3339Nano),

@@ -40,8 +40,9 @@ func TestContainerExitAndStoppedServicesExplainStoppedContainers(t *testing.T) {
 	}
 	oneOff := compose("api-run", "api", container.StateExited)
 	oneOff.Labels[composeOneOffLabel] = "True"
-	d := &DockerDiscovery{client: fakeDockerClient{
+	d := &DockerDiscovery{selfID: "self", client: fakeDockerClient{
 		containers: []container.Summary{
+			compose("self", "metriclens", container.StateRunning),
 			compose("api", "api", container.StateRunning),
 			oneOff,
 			compose("worker", "worker", container.StateExited),
@@ -73,6 +74,11 @@ func TestContainerExitAndStoppedServicesExplainStoppedContainers(t *testing.T) {
 	}
 	if !reflect.DeepEqual(stopped, want) {
 		t.Fatalf("stopped = %#v, want %#v", stopped, want)
+	}
+
+	d.selfID = ""
+	if unscoped, err := d.StoppedServices(context.Background(), []string{"worker"}); err != nil || len(unscoped) != 0 {
+		t.Fatalf("unscoped stopped = %#v %v, want none outside a Compose project", unscoped, err)
 	}
 }
 

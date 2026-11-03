@@ -1185,4 +1185,16 @@ func TestReadinessExplainsStoppedServices(t *testing.T) {
 	if response.Code != http.StatusRequestTimeout || states["worker"] != "stopped container exited with code 1" || states["api"] != "missing " {
 		t.Fatalf("readiness = %#v, want stopped worker with its exit reason and missing api", states)
 	}
+
+	redis := model.Target{ID: "redis-1", ServiceName: "redis", Status: model.TargetStatusDown, NoMetricsEndpoint: true}
+	server = NewServer(lister, fakeTargetStore{targets: []model.Target{redis}}, Config{})
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/readiness?service=redis&timeout=0", nil))
+	body = readinessResponse{}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode readiness: %v", err)
+	}
+	if len(body.Services) != 1 || body.Services[0].State != "down" || !strings.Contains(body.Services[0].Reason, "no metrics endpoint") {
+		t.Fatalf("readiness = %#v, want down with a no-endpoint reason", body.Services)
+	}
 }

@@ -90,6 +90,17 @@ func TestProbeMarksDownWhenNoEndpointIsPrometheus(t *testing.T) {
 	if !strings.Contains(targets[0].LastError, "no Prometheus endpoint found") {
 		t.Fatalf("lastError = %q, want no endpoint message", targets[0].LastError)
 	}
+	if !targets[0].NoMetricsEndpoint {
+		t.Fatal("a container without metrics labels should be marked as having no metrics endpoint")
+	}
+
+	declared := prober.Probe(context.Background(), []model.DiscoveredContainer{{
+		ID: "def456", Name: "api-2", State: model.ContainerStateRunning, ComposeService: "api",
+		Labels: map[string]string{"metriclens.port": "8080"},
+	}})
+	if len(declared) != 1 || declared[0].NoMetricsEndpoint {
+		t.Fatalf("declared target = %#v, want a failing declared endpoint kept as an error", declared)
+	}
 }
 
 func TestProbeSkipsNonRunningAndNonComposeContainers(t *testing.T) {

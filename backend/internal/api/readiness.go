@@ -193,6 +193,9 @@ func (s *Server) readinessSnapshot(services []string, scrapedAfter time.Time) ([
 			if target.Status == model.TargetStatusUp && scrapedSince(target.LastScrapeAt, scrapedAfter) {
 				state.ReadyTargets++
 			}
+			if target.NoMetricsEndpoint {
+				state.Reason = "no metrics endpoint found; readiness needs a successful scrape"
+			}
 		}
 		if state.TargetCount > 0 {
 			switch {
