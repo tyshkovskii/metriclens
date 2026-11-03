@@ -9,6 +9,26 @@ import (
 	"metriclens/backend/internal/model"
 )
 
+func TestServerErrorUsesStatusLabelsOnly(t *testing.T) {
+	for _, test := range []struct {
+		labels map[string]string
+		want   bool
+	}{
+		{map[string]string{"status": "500"}, true},
+		{map[string]string{"code": "503"}, true},
+		{map[string]string{"grpc_code": "Unavailable"}, true},
+		{map[string]string{"status": "404"}, false},
+		{map[string]string{"grpc_code": "NotFound"}, false},
+		{map[string]string{"route": "/500", "status": "200"}, false},
+		{map[string]string{"le": "500"}, false},
+		{map[string]string{"method": "GET", "status_code": "5"}, false},
+	} {
+		if got := ServerError(test.labels); got != test.want {
+			t.Errorf("ServerError(%v) = %v, want %v", test.labels, got, test.want)
+		}
+	}
+}
+
 func TestBehaviorDoesNotCountNonFinitePairsAsEvidence(t *testing.T) {
 	b := observe(func(string) []model.Series {
 		return []model.Series{{Points: []model.SeriesPoint{

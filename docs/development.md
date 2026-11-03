@@ -31,8 +31,12 @@ the human must use an address reachable from their browser.
 3. Call `start_experiment` with a short name and optional `clientRunId`.
 4. Run a focused workload or test through normal development tools.
 5. Call `compare_experiment` with the returned marker ID, a small `limit`, and
-   `severities: ["warning", "error"]`. Include informational findings when
-   measuring rates or gauge changes.
+   `severities: ["warning", "error"]`. A `regressed` `error_ratio` or
+   `latency_p95` verdict is a warning. To judge a code change, first run the
+   same workload on the old code between two markers and pass them as
+   `baselineFrom` and `baselineTo`; otherwise the baseline is the window before
+   the marker, and an idle baseline is `inconclusive`. Include informational
+   findings when measuring rates or gauge changes.
 6. Request `get_metric_evidence` for the finding's target, metrics, and window.
    Use `list_metrics` when no finding names the target or metric you need.
    Check `omitted`, `seriesTruncated`, and `pointsTruncated` before describing the

@@ -396,6 +396,29 @@ func hasStatusLabel(labelNames []string) bool {
 	return false
 }
 
+// grpcServerErrors are the gRPC codes that report a server-side failure
+// rather than a rejected request.
+var grpcServerErrors = map[string]struct{}{
+	"Unknown": {}, "DeadlineExceeded": {}, "Unimplemented": {}, "Internal": {}, "Unavailable": {}, "DataLoss": {},
+}
+
+// ServerError reports whether a request sample's status-like label marks a
+// server-side failure: an HTTP 5xx status or a gRPC server error code.
+func ServerError(labels map[string]string) bool {
+	for name, value := range labels {
+		if class, ok := httpLabelNames[name]; !ok || class != labelClassStatus {
+			continue
+		}
+		if len(value) == 3 && value[0] == '5' {
+			return true
+		}
+		if _, ok := grpcServerErrors[value]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func isErrorCounter(metric string) bool {
 	for _, token := range strings.Split(metric, "_") {
 		if _, ok := errorTokens[token]; ok {

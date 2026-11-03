@@ -42,12 +42,14 @@ type startExperimentInput struct {
 }
 
 type compareExperimentInput struct {
-	From        string   `json:"from" jsonschema:"marker ID returned by start_experiment"`
-	To          string   `json:"to,omitempty" jsonschema:"optional marker ID; omitted compares through now"`
-	Limit       *int     `json:"limit,omitempty" jsonschema:"maximum number of findings"`
-	Severities  []string `json:"severities,omitempty" jsonschema:"filter by info, warning, or error"`
-	Services    []string `json:"services,omitempty" jsonschema:"filter by service name"`
-	ChangedOnly bool     `json:"changedOnly,omitempty" jsonschema:"only findings whose state changed; omits quality warnings already present at the from marker"`
+	From         string   `json:"from" jsonschema:"marker ID returned by start_experiment"`
+	To           string   `json:"to,omitempty" jsonschema:"optional marker ID; omitted compares through now"`
+	Limit        *int     `json:"limit,omitempty" jsonschema:"maximum number of findings"`
+	Severities   []string `json:"severities,omitempty" jsonschema:"filter by info, warning, or error"`
+	Services     []string `json:"services,omitempty" jsonschema:"filter by service name"`
+	ChangedOnly  bool     `json:"changedOnly,omitempty" jsonschema:"only findings whose state changed; omits quality warnings already present at the from marker"`
+	BaselineFrom string   `json:"baselineFrom,omitempty" jsonschema:"optional marker ID starting a baseline run of the same workload; omitted compares with the equal-length window before from"`
+	BaselineTo   string   `json:"baselineTo,omitempty" jsonschema:"optional marker ID ending the baseline run; omitted ends it at from"`
 }
 
 type metricEvidenceInput struct {
@@ -129,7 +131,7 @@ func newMCPHandler(s *Server) http.Handler {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "compare_experiment",
 		Title:       "Compare experiment",
-		Description: "Compare retained observations from a marker through another marker or now.",
+		Description: "Compare retained observations from a marker through another marker or now, with server error ratio and p95 latency verdicts against a baseline window.",
 		Annotations: readOnly,
 	}, s.compareExperiment)
 	evidenceSchema, err := jsonschema.For[metricEvidenceOutput](&jsonschema.ForOptions{
@@ -234,6 +236,10 @@ func (s *Server) compareExperiment(_ context.Context, _ *mcp.CallToolRequest, in
 		return nil, diagnosis.Report{}, mcpToolError(err)
 	}
 	options, err := mcpReportOptions(input.Severities, input.Services, input.ChangedOnly)
+	if err != nil {
+		return nil, diagnosis.Report{}, mcpToolError(err)
+	}
+	options.BaselineStart, options.BaselineEnd, err = s.compareBaseline(from, toTime, input.BaselineFrom, input.BaselineTo, now, retention)
 	if err != nil {
 		return nil, diagnosis.Report{}, mcpToolError(err)
 	}

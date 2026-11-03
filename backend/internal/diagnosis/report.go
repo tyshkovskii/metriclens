@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"metriclens/backend/internal/classifier"
+	"metriclens/backend/internal/histogram"
 	"metriclens/backend/internal/model"
 	"metriclens/backend/internal/quality"
 )
@@ -52,6 +53,7 @@ type Report struct {
 	Omitted  int           `json:"omitted"`
 	From     *MarkerRef    `json:"from,omitempty"`
 	To       *MarkerRef    `json:"to,omitempty"`
+	Baseline *Window       `json:"baseline,omitempty"`
 }
 
 type MarkerRef struct {
@@ -77,10 +79,18 @@ type Finding struct {
 	Change  *float64 `json:"change,omitempty"`
 	Peak    *float64 `json:"peak,omitempty"`
 
-	Suggestion     string              `json:"suggestion,omitempty"`
-	Evidence       *EvidenceDescriptor `json:"evidence,omitempty"`
-	score          float64             `json:"-"`
-	stableIdentity string              `json:"-"`
+	// Baseline, Candidate, and Verdict compare a signal between a baseline
+	// window and the report window.
+	Baseline  *float64 `json:"baseline,omitempty"`
+	Candidate *float64 `json:"candidate,omitempty"`
+	Verdict   string   `json:"verdict,omitempty"`
+
+	Suggestion      string              `json:"suggestion,omitempty"`
+	Evidence        *EvidenceDescriptor `json:"evidence,omitempty"`
+	score           float64             `json:"-"`
+	stableIdentity  string              `json:"-"`
+	evidenceStart   string              `json:"-"`
+	evidenceMetrics []string            `json:"-"`
 }
 
 type EvidenceDescriptor struct {
@@ -102,6 +112,10 @@ type BuildOptions struct {
 	// EndQualityWarnings, when non-nil, holds QualityWarnings captured at a
 	// comparison's end marker; ChangedOnly omits warnings that appeared later.
 	EndQualityWarnings map[string]struct{}
+	// BaselineStart and BaselineEnd, when set, add server error ratio and p95
+	// latency verdicts comparing that window with the report window.
+	BaselineStart time.Time
+	BaselineEnd   time.Time
 }
 
 // QualityWarnings captures the identities of current instrumentation warnings
@@ -152,6 +166,16 @@ func BuildWithOptions(source Source, now time.Time, window time.Duration, limit 
 		Window:   Window{Start: start.Format(time.RFC3339Nano), End: now.Format(time.RFC3339Nano), DurationMs: window.Milliseconds()},
 		Findings: []Finding{},
 	}
+	baseline := timeRange{start: options.BaselineStart.UTC(), end: options.BaselineEnd.UTC()}
+	// Verdict links and evidence span both windows so a person sees before
+	// and after together.
+	verdictEvidenceStart := start
+	if !options.BaselineEnd.IsZero() {
+		report.Baseline = &Window{Start: baseline.start.Format(time.RFC3339Nano), End: baseline.end.Format(time.RFC3339Nano), DurationMs: baseline.end.Sub(baseline.start).Milliseconds()}
+		if baseline.start.Before(start) {
+			verdictEvidenceStart = baseline.start
+		}
+	}
 
 	targets := append([]model.Target(nil), source.Targets()...)
 	sort.Slice(targets, func(i, j int) bool {
@@ -196,6 +220,7 @@ func BuildWithOptions(source Source, now time.Time, window time.Duration, limit 
 		if !ok {
 			continue
 		}
+		histograms := histogram.Group(metrics.Families)
 		for _, issue := range quality.Analyze(metrics.Families) {
 			if issue.Severity != model.MetricQualityWarning {
 				continue
@@ -208,7 +233,7 @@ func BuildWithOptions(source Source, now time.Time, window time.Duration, limit 
 					continue
 				}
 			}
-			report.Findings = append(report.Findings, Finding{
+			finding := Finding{
 				Severity:   "warning",
 				Signal:     "quality_warning",
 				TargetID:   target.ID,
@@ -217,13 +242,18 @@ func BuildWithOptions(source Source, now time.Time, window time.Duration, limit 
 				Message:    issue.Message,
 				Suggestion: issue.Suggestion,
 				score:      500,
-			})
+			}
+			if parts, ok := histograms[issue.Metric]; ok && parts.Present() {
+				finding.evidenceMetrics = histogramSampleNames(issue.Metric)
+			}
+			report.Findings = append(report.Findings, finding)
 		}
 
 		history := func(metric string) []model.Series {
 			return boundedSeries(source.TargetSeries(target.ID, metric, nil), start, now)
 		}
-		for _, observation := range selectedObservations(metrics.Families, history) {
+		panels := classifier.Classify(metrics.Families, history)
+		for _, observation := range selectedObservations(panels) {
 			series := history(observation.metric)
 			if len(series) == 0 && target.Status == model.TargetStatusUp && target.LastError == "" {
 				scrapedAt, err := time.Parse(time.RFC3339Nano, target.LastScrapeAt)
@@ -240,6 +270,23 @@ func BuildWithOptions(source Source, now time.Time, window time.Duration, limit 
 			if finding, ok := counterFinding(target, observation.metric, series); ok {
 				report.Findings = append(report.Findings, finding)
 			}
+		}
+		if report.Baseline == nil {
+			continue
+		}
+		compared := timeRange{start: start, end: now}
+		for _, panel := range panels {
+			var finding Finding
+			switch panel.Kind {
+			case model.PanelKindHTTPErrorRate:
+				finding = errorRatioFinding(target, panel.Metric, source.TargetSeries(target.ID, panel.Metric, nil), baseline, compared)
+			case model.PanelKindHistogramLatency:
+				finding = latencyFinding(target, panel.Metric, panel.Unit, source.TargetSeries(target.ID, panel.Metric+"_bucket", nil), baseline, compared)
+			case model.PanelKindCounterRate, model.PanelKindGauge, model.PanelKindHTTPRate, model.PanelKindSummaryQuantiles:
+				continue
+			}
+			finding.evidenceStart = verdictEvidenceStart.Format(time.RFC3339Nano)
+			report.Findings = append(report.Findings, finding)
 		}
 	}
 	if events, ok := source.(lifecycleSource); ok {
@@ -330,6 +377,8 @@ func findingChanged(finding Finding) bool {
 		return finding.Delta != nil && *finding.Delta != 0
 	case "gauge":
 		return finding.Change != nil && *finding.Change != 0
+	case "error_ratio", "latency_p95":
+		return finding.Verdict != "unchanged"
 	default:
 		return true
 	}
@@ -338,18 +387,26 @@ func findingChanged(finding Finding) bool {
 func normalizeFinding(finding *Finding, window Window) {
 	finding.Message = boundedDiagnostic(finding.Message)
 	finding.Suggestion = boundedDiagnostic(finding.Suggestion)
+	start := window.Start
+	if finding.evidenceStart != "" {
+		start = finding.evidenceStart
+	}
 	if finding.TargetID != "" {
-		query := url.Values{"target": {finding.TargetID}, "start": {window.Start}, "end": {window.End}}
+		query := url.Values{"target": {finding.TargetID}, "start": {start}, "end": {window.End}}
 		if finding.Metric != "" {
 			query.Set("metric", finding.Metric)
 		}
 		finding.UIURL = "/?" + query.Encode()
 	}
 	if finding.Metric != "" && finding.TargetID != "" {
+		metrics := finding.evidenceMetrics
+		if len(metrics) == 0 {
+			metrics = []string{finding.Metric}
+		}
 		finding.Evidence = &EvidenceDescriptor{
 			TargetID: finding.TargetID,
-			Metrics:  []string{finding.Metric},
-			Start:    window.Start,
+			Metrics:  metrics,
+			Start:    start,
 			End:      window.End,
 		}
 	}
@@ -374,8 +431,7 @@ type selectedObservation struct {
 	kind   model.PanelKind
 }
 
-func selectedObservations(families []model.MetricFamily, history classifier.SeriesLookup) []selectedObservation {
-	panels := classifier.Classify(families, history)
+func selectedObservations(panels []model.SuggestedPanel) []selectedObservation {
 	seen := map[string]struct{}{}
 	selected := make([]selectedObservation, 0, len(panels))
 	for _, panel := range panels {
@@ -513,17 +569,7 @@ func counterFinding(target model.Target, metric string, series []model.Series) (
 			complete = false
 			continue
 		}
-		var seriesDelta float64
-		for i := 1; i < len(points); i++ {
-			change := points[i].value - points[i-1].value
-			if change >= 0 {
-				seriesDelta += change
-			} else {
-				// A decrease is a counter reset; the post-reset value is the
-				// amount accumulated since the reset.
-				seriesDelta += points[i].value
-			}
-		}
+		seriesDelta := counterIncrease(points)
 		delta += seriesDelta
 		rate += seriesDelta / elapsed
 	}
@@ -619,6 +665,20 @@ func parsedPoints(points []model.SeriesPoint) []parsedPoint {
 	}
 	sort.SliceStable(parsed, func(i, j int) bool { return parsed[i].ts.Before(parsed[j].ts) })
 	return parsed
+}
+
+// counterIncrease sums a counter's growth across ordered samples. A decrease is a
+// counter reset; the post-reset value is the amount accumulated since then.
+func counterIncrease(points []parsedPoint) float64 {
+	var total float64
+	for i := 1; i < len(points); i++ {
+		if change := points[i].value - points[i-1].value; change >= 0 {
+			total += change
+		} else {
+			total += points[i].value
+		}
+	}
+	return total
 }
 
 func floatPtr(value float64) *float64 {

@@ -17,8 +17,10 @@ import (
 )
 
 var (
-	errPositiveLimit = errors.New("limit query parameter must be a positive integer")
-	errMaximumLimit  = errors.New("limit query parameter exceeds maximum")
+	errPositiveLimit       = errors.New("limit query parameter must be a positive integer")
+	errMaximumLimit        = errors.New("limit query parameter exceeds maximum")
+	errUnknownBaselineFrom = errors.New("unknown or expired baselineFrom marker")
+	errUnknownBaselineTo   = errors.New("unknown or expired baselineTo marker")
 )
 
 // MaxMarkerFieldRunes bounds optional marker names and client run IDs.
@@ -78,6 +80,15 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	options.BaselineStart, options.BaselineEnd, err = s.compareBaseline(from, toTime, r.URL.Query().Get("baselineFrom"), r.URL.Query().Get("baselineTo"), now, retention)
+	if errors.Is(err, errUnknownBaselineFrom) || errors.Is(err, errUnknownBaselineTo) {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	options.BaselineQualityWarnings = from.qualityWarnings
 	if toMarker != nil {
 		options.EndQualityWarnings = toMarker.qualityWarnings
@@ -88,6 +99,39 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 		report.To = markerRef(toMarker.Marker)
 	}
 	writeJSON(w, http.StatusOK, report)
+}
+
+// compareBaseline resolves the window a comparison is judged against: the
+// baseline markers when given, otherwise the equal-length window before from.
+// With only baselineFrom, the baseline runs until from, which fits an earlier
+// run of the same workload.
+func (s *Server) compareBaseline(from storedMarker, toTime time.Time, baselineFromID, baselineToID string, now time.Time, retention time.Duration) (time.Time, time.Time, error) {
+	baselineFromID, baselineToID = strings.TrimSpace(baselineFromID), strings.TrimSpace(baselineToID)
+	if baselineFromID == "" {
+		if baselineToID != "" {
+			return time.Time{}, time.Time{}, errors.New("baselineTo requires baselineFrom")
+		}
+		return from.time.Add(-toTime.Sub(from.time)), from.time, nil
+	}
+	baselineFrom, ok := s.markers.get(baselineFromID, now, retention)
+	if !ok {
+		return time.Time{}, time.Time{}, errUnknownBaselineFrom
+	}
+	end := from.time
+	if baselineToID != "" {
+		baselineTo, ok := s.markers.get(baselineToID, now, retention)
+		if !ok {
+			return time.Time{}, time.Time{}, errUnknownBaselineTo
+		}
+		end = baselineTo.time
+	}
+	if !baselineFrom.time.Before(end) {
+		return time.Time{}, time.Time{}, errors.New("baselineFrom marker must be before baselineTo or from")
+	}
+	if end.After(from.time) {
+		return time.Time{}, time.Time{}, errors.New("baseline must end at or before the from marker")
+	}
+	return baselineFrom.time, end, nil
 }
 
 func markerRef(marker Marker) *diagnosis.MarkerRef {

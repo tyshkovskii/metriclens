@@ -23,6 +23,10 @@ services:
       context: ./api
     expose:
       - "8080"
+    environment:
+      # Seeded faults for regression experiments; see README.md.
+      ERROR_RATE: ${ERROR_RATE:-0.07}
+      LATENCY_MS: ${LATENCY_MS:-0}
     labels:
       # Tell metriclens which port/path to probe first.
       metriclens.port: "8080"

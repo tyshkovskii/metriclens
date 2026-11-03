@@ -29,6 +29,26 @@ Then open <http://localhost:9999>.
 - **Quality** tab: actionable warnings (e.g. metrics missing HELP/TYPE, or
   high-cardinality label hints).
 
+## Seed a regression
+
+The `api` service accepts two fault knobs so you can check that a comparison
+catches a known regression: `ERROR_RATE` (share of 500 responses, default
+`0.07`) and `LATENCY_MS` (added to every request, default `0`).
+
+```bash
+docker compose up -d --build
+# Let normal traffic run for a minute, then mark the change.
+curl -s -X POST http://localhost:9999/api/markers -d '{"name":"seeded errors"}'
+ERROR_RATE=0.3 docker compose up -d api   # or LATENCY_MS=300
+# After another minute, compare with the equal-length window before the marker.
+curl -s "http://localhost:9999/api/compare?from=MARKER_ID&severity=warning,error"
+```
+
+Expect an `error_ratio` finding (or `latency_p95` for `LATENCY_MS`) with
+`"verdict": "regressed"`. Run `docker compose up -d api` without the knobs to
+restore normal traffic; a comparison across unchanged traffic reports
+`unchanged` verdicts, which the `warning,error` filter hides.
+
 ## Tear down
 
 ```bash
