@@ -22,7 +22,7 @@ services:
       metriclens.exclude: "true"
 
   exporter:
-    image: oliver006/redis_exporter:v1.96.0
+    image: oliver006/redis_exporter:v1.97.0
     command:
       - --redis.addr=redis://redis:6379
     depends_on:
